@@ -1,218 +1,144 @@
 # CalebsModServer
 
-Backend control plane for a private modded Minecraft server.
+Backend control plane for a private modded Minecraft server. Manages mod distribution, whitelist access, and Minecraft server control via Docker.
 
-Built with **Nest.js**. Provides:
-
-- Modpack manifest endpoints with verified mirror storage
-- Mod file hosting (SHA256-verified)
-- Admin file upload via client
-- Access request and approval (whitelist management via RCON)
-- Docker-based Minecraft server control (start/stop/restart)
-- Server stats and monitoring
-- JWT-based admin authentication
-
-## Architecture
-
-The CalebsMod server runs **bare-metal** on your local machine and manages a **Dockerized Minecraft server**.
-
-### Admin Workflow
-
-1. Admin uses CalebsModClient to upload a mod (URL or file)
-2. Server downloads/verifies the mod, computes SHA256
-3. Server stores mod in `storage/mods-store/<sha256>.jar`
-4. Manifest is updated automatically
-5. Regular clients download mods from your server using the manifest
-
-### Storage Layout
-
-```
-storage/
-  mods-store/         # Permanent mod binaries (SHA256-named)
-  cache/              # Temporary downloads
-packs/                # Pack metadata (optional, can be in DB)
-data/                 # SQLite database
-minecraft-data/       # Docker volume mount for Minecraft
-```
-
-## Core ideas
-
-- Launcher (CalebsModClient) auto-syncs mods and configs using manifest
-- Admin uploads mods once; all clients download from local server
-- Players request access; admin approves; server whitelists via RCON
-- Minecraft runs in Docker, managed by this server
-- Minecraft remains authoritative for identity (`online-mode=true`)
-
-## Recommended Minecraft settings
-
-In `server.properties`:
-
-- `online-mode=true`
-- `white-list=true`
-- `enforce-whitelist=true`
-
-For RCON:
-
-- `enable-rcon=true`
-- `rcon.password=<strong password>`
-- `rcon.port=25575`
-
-Never expose RCON publicly.
-
-## Environment Setup
-
-Copy `.env.example` to `.env` and configure:
+## Quick Start
 
 ```bash
+npm install --legacy-peer-deps
 cp .env.example .env
-```
-
-Key variables:
-
-- `ADMIN_SECRET` - Admin authentication secret
-- `JWT_SECRET` - JWT signing secret
-- `RCON_PASSWORD` - Must match Minecraft server RCON password
-- `MINECRAFT_VERSION` - Minecraft version (e.g., 1.20.1)
-- `MINECRAFT_TYPE` - Loader type (FORGE, FABRIC, etc.)
-
-## Running locally
-
-```bash
-npm install
+# Edit .env with your secrets
 npm run start:dev
 ```
 
-Default address: `http://localhost:3000`
+Server: `http://localhost:3000`
+
+## Features
+
+- **Mod Distribution**: Mirrors mods by SHA256, serves to clients
+- **Access Control**: Whitelist management via RCON
+- **Server Control**: Start/stop/restart Minecraft Docker container
+- **Admin Auth**: JWT-based authentication
+
+## Environment (.env)
+
+```env
+ADMIN_SECRET=<long-random-string>
+JWT_SECRET=<another-long-random-string>
+RCON_PASSWORD=<minecraft-rcon-password>
+
+MINECRAFT_VERSION=1.20.1
+MINECRAFT_TYPE=FORGE
+MINECRAFT_MEMORY=4G
+```
 
 ## API Endpoints
 
 ### Public
 
-- `GET /api/modpack/manifest/:packId` - Get modpack manifest
-- `GET /api/modpack/mods/:sha256` - Download mod file
-- `GET /api/server/status` - Get server status
-- `POST /api/access/request` - Request server access
+- `GET /api/modpack/manifest/:packId` - Mod list
+- `GET /api/modpack/mods/:sha256` - Download mod
+- `GET /api/server/status` - Server status
+- `POST /api/access/request` - Request access
 
-### Admin Authentication
+### Admin (JWT Required)
 
-- `POST /api/auth/admin/login` - Login with admin secret, receive JWT
+**Login:**
 
-### Admin (Protected)
-
-**Modpack Management:**
-
-- `GET /api/modpack/packs` - List all packs
-- `POST /api/modpack/packs` - Create new pack
-- `POST /api/modpack/packs/:packId` - Update pack
-- `POST /api/modpack/packs/:packId/mods` - Add mod by URL
-- `POST /api/modpack/packs/:packId/mods/upload` - Upload mod file
-- `DELETE /api/modpack/packs/:packId/mods/:sha256` - Remove mod
-
-**Access Management:**
-
-- `GET /api/access/requests` - List access requests
-- `GET /api/access/requests/:id` - Get request details
-- `POST /api/access/approve/:id` - Approve request (whitelists player)
-- `POST /api/access/deny/:id` - Deny request
-- `POST /api/access/revoke/:username` - Revoke access
-
-**Server Control:**
-
-- `POST /api/server/start` - Start Minecraft server
-- `POST /api/server/stop` - Stop Minecraft server
-- `POST /api/server/restart` - Restart Minecraft server
-- `GET /api/server/metrics` - Get server metrics (CPU, memory, network)
-- `GET /api/server/logs` - Get server logs
-- `POST /api/server/command` - Send RCON command
-
-## Project Structure
-
-```
-src/
-├── main.ts                    # Application entry point
-├── app.module.ts              # Root module
-├── database/                  # SQLite database module
-│   ├── database.module.ts
-│   └── database.service.ts
-├── auth/                      # JWT authentication
-│   ├── auth.module.ts
-│   ├── auth.service.ts
-│   ├── auth.controller.ts
-│   ├── jwt-auth.guard.ts
-│   ├── jwt.strategy.ts
-│   └── dto/
-├── modpack/                   # Mod management & serving
-│   ├── modpack.module.ts
-│   ├── modpack.service.ts
-│   ├── modpack.controller.ts
-│   └── dto/
-├── access/                    # Whitelist management
-│   ├── access.module.ts
-│   ├── access.service.ts
-│   ├── access.controller.ts
-│   └── dto/
-├── server/                    # Server control
-│   ├── server.module.ts
-│   ├── server.service.ts
-│   ├── server.controller.ts
-│   └── dto/
-├── rcon/                      # RCON client wrapper (rcon-client)
-│   ├── rcon.module.ts
-│   └── rcon.service.ts
-└── docker/                    # Docker container management
-    ├── docker.module.ts
-    └── docker.service.ts
+```bash
+POST /api/auth/admin/login
+Body: {"adminSecret": "your-secret"}
 ```
 
-## Database Schema
+**Modpack:**
 
-SQLite database includes:
+- `POST /api/modpack/packs` - Create pack
+- `POST /api/modpack/packs/:id/mods` - Add by URL
+- `POST /api/modpack/packs/:id/mods/upload` - Upload file
+- `DELETE /api/modpack/packs/:id/mods/:sha256` - Remove
 
-- `packs` - Modpack definitions
-- `pack_versions` - Version history
-- `mods` - Mod files (SHA256, metadata)
-- `pack_version_mods` - Many-to-many relationship
-- `access_requests` - Player access requests
-- `admin_sessions` - JWT session tracking
-- `audit_log` - All admin actions
+**Access:**
 
-## Docker Management
+- `GET /api/access/requests` - List requests
+- `POST /api/access/approve/:id` - Approve
+- `POST /api/access/deny/:id` - Deny
 
-The server uses Dockerode to manage a Minecraft container. You can:
+**Server:**
 
-- Start/stop/restart the container via API
-- View logs and metrics
-- Send RCON commands while running
+- `POST /api/server/start` - Start
+- `POST /api/server/stop` - Stop
+- `POST /api/server/restart` - Restart
+- `GET /api/server/metrics` - Stats
+- `GET /api/server/logs?tail=100` - Logs
 
-Reference `docker-compose.yml` provided for manual Docker setup if needed.
+## Architecture
 
-## Domain and networking
+```
+storage/mods-store/   # Mods: <sha256>.jar
+storage/cache/        # Temp downloads
+data/calebs-mod.db    # SQLite
+minecraft-data/       # Docker volume
+```
 
-- Public server address: `mc.calebwash.com`
-- Dynamic DNS keeps the domain pointed at current home IP
-- Port forward TCP 25565 to the host machine
-- RCON port (25575) should NOT be exposed publicly
+Server runs bare-metal. Minecraft runs in Docker (managed via Dockerode).
+
+## Flow
+
+1. Admin adds mod (URL or upload)
+2. Server downloads, hashes, stores
+3. Manifest updates
+4. Clients fetch manifest, download by hash
+
+## Minecraft Setup
+
+Auto-creates Docker container:
+
+- Image: `itzg/minecraft-server:latest`
+- Ports: 25565, 25575 (RCON)
+- Volume: `./minecraft-data:/data`
+
+`server.properties`:
+
+```properties
+online-mode=true
+white-list=true
+enable-rcon=true
+rcon.password=<match .env>
+```
+
+## Database
+
+SQLite tables: packs, mods, pack_versions, access_requests, admin_sessions, audit_log
+
+## Example
+
+```bash
+# Login
+curl -X POST http://localhost:3000/api/auth/admin/login \
+  -H "Content-Type: application/json" \
+  -d '{"adminSecret":"your-secret"}'
+
+TOKEN="<token>"
+
+# Create pack
+curl -X POST http://localhost:3000/api/modpack/packs \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"name":"CalebsMod","minecraftVersion":"1.20.1","loaderType":"forge","loaderVersion":"47.2.0"}'
+
+# Add mod
+curl -X POST http://localhost:3000/api/modpack/packs/calebsmod/mods \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"url":"https://cdn.modrinth.com/...","required":true}'
+
+# Start server
+curl -X POST http://localhost:3000/api/server/start \
+  -H "Authorization: Bearer $TOKEN"
+```
 
 ## Security
 
 - Whitelist enforced
-- Online mode enabled
-- Admin endpoints protected with JWT
-- RCON never exposed to the internet
-- Admin secret + token rotation supported
-- All admin actions logged in audit trail
-
-## Development
-
-Run tests:
-
-```bash
-npm test
-```
-
-Build for production:
-
-```bash
-npm run build
-npm run start:prod
-```
+- Online mode (Mojang auth)
+- JWT-protected admin endpoints
+- RCON localhost only
+- Audit log for all actions
