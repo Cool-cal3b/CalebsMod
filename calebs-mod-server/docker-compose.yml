@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  minecraft:
+    image: itzg/minecraft-server:latest
+    container_name: calebs-minecraft-server
+    environment:
+      EULA: 'TRUE'
+      MEMORY: '4G'
+      VERSION: '1.20.1'
+      TYPE: 'FORGE'
+      ENABLE_RCON: 'true'
+      RCON_PASSWORD: 'your-rcon-password'
+      RCON_PORT: '25575'
+      ONLINE_MODE: 'true'
+      WHITE_LIST: 'true'
+      ENFORCE_WHITELIST: 'true'
+    ports:
+      - '25565:25565'
+      - '25575:25575'
+    volumes:
+      - ./minecraft-data:/data
+    restart: unless-stopped
+    tty: true
+    stdin_open: true

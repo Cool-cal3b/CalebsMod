@@ -54,3 +54,14 @@ pids
 
 # Diagnostic reports (https://nodejs.org/api/report.html)
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
+
+# Minecraft mods and server data (not tracked in git)
+/mods
+/storage
+/minecraft-data
+
+# SQLite database
+*.db
+*.db-journal
+*.db-shm
+*.db-wal

@@ -1,0 +1,20 @@
+# Example Dockerfile for the Minecraft server
+# This is managed by the CalebsMod server via Dockerode
+# You typically don't need to manually build this - it uses the official itzg/minecraft-server image
+
+FROM itzg/minecraft-server:latest
+
+ENV EULA=TRUE
+ENV TYPE=FORGE
+ENV VERSION=1.20.1
+ENV MEMORY=4G
+ENV ENABLE_RCON=true
+ENV RCON_PORT=25575
+ENV ONLINE_MODE=true
+ENV WHITE_LIST=true
+ENV ENFORCE_WHITELIST=true
+
+EXPOSE 25565 25575
+
+VOLUME /data
+
