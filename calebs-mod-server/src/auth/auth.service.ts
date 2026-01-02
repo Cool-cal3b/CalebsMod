@@ -2,7 +2,6 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { DatabaseService } from '../database/database.service';
-import * as crypto from 'crypto';
 
 @Injectable()
 export class AuthService {
@@ -12,13 +11,13 @@ export class AuthService {
     private db: DatabaseService,
   ) {}
 
-  async validateAdminSecret(adminSecret: string): Promise<boolean> {
+  validateAdminSecret(adminSecret: string): boolean {
     const expectedSecret = this.configService.get<string>('ADMIN_SECRET');
     return adminSecret === expectedSecret;
   }
 
-  async login(adminSecret: string) {
-    const isValid = await this.validateAdminSecret(adminSecret);
+  login(adminSecret: string) {
+    const isValid = this.validateAdminSecret(adminSecret);
     if (!isValid) {
       throw new Error('Invalid admin secret');
     }

@@ -1,26 +1,33 @@
-import {useState} from 'react';
-import logo from './assets/images/logo-universal.png';
 import './App.css';
-import {Greet} from "../wailsjs/go/main/App";
+import logo from './assets/images/CalebsModLogo.png';
+import { Link } from 'react-router-dom';
 
 function App() {
-    const [resultText, setResultText] = useState("Please enter your name below 👇");
-    const [name, setName] = useState('');
-    const updateName = (e) => setName(e.target.value);
-    const updateResultText = (result) => setResultText(result);
+	const syncMods = () => {
+		console.log("Syncing mods");
+	}
 
-    function greet() {
-        Greet(name).then(updateResultText);
-    }
+	const connectToServer = () => {
+		console.log("Connecting to server");
+	}
 
-    return (
+	return (
         <div id="App">
-            <img src={logo} id="logo" alt="logo"/>
-            <div id="result" className="result">{resultText}</div>
-            <div id="input" className="input-box">
-                <input id="name" className="input" onChange={updateName} autoComplete="off" name="input" type="text"/>
-                <button className="btn" onClick={greet}>Greet</button>
-            </div>
+			<div className="logo-container">
+				<img src={logo} alt="CalebsMod Logo" className="app-logo" />
+				<p className="subtitle">Private Modpack for Friends</p>
+			</div>
+		   
+		   <div className="status-bar">
+			   <span className="status-item">Server: <span className="status-online">Online</span></span>
+			   <span className="status-item">Mods: <span className="status-synced">Synced</span></span>
+		   </div>
+
+		   <div className="options">
+				<button className="mc-button large" onClick={syncMods}>Sync Mods</button>
+				<button className="mc-button large green" onClick={connectToServer}>Launch Minecraft</button>
+				<Link className="mc-button admin-link" to="/admin">Admin Panel</Link>	
+		   </div>
         </div>
     )
 }
