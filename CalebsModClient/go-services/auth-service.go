@@ -7,7 +7,7 @@ import (
 
 var tempToken string = ""
 var tokenExpiresAt int64 = 0
-var keyFileName string = "key.json"
+var keyFileName string = "admin-key.json"
 
 func Login() error {
 	adminKey, err := GetAdminKey()
@@ -15,8 +15,16 @@ func Login() error {
 		return err
 	}
 
-	// Make a POST request to the server to login
-	apiResponse, err := MakePostRequestToServer("/api/auth/admin/login", []byte(adminKey))
+	requestBody := map[string]string{
+		"adminSecret": adminKey,
+	}
+
+	requestBodyBytes, err := json.Marshal(requestBody)
+	if err != nil {
+		return err
+	}
+
+	apiResponse, err := MakePostRequestToServer("/api/auth/admin/login", requestBodyBytes)
 	if err != nil {
 		return err
 	}
@@ -36,7 +44,14 @@ func Login() error {
 }
 
 func IsLoggedIn() bool {
-	return tempToken != "" && time.Now().Unix() < tokenExpiresAt
+	return tempToken != "" && time.Now().UnixMilli() < tokenExpiresAt
+}
+
+func GetToken() string {
+	if IsLoggedIn() {
+		return tempToken
+	}
+	return ""
 }
 
 func GetAdminKey() (string, error) {
@@ -46,7 +61,7 @@ func GetAdminKey() (string, error) {
 	}
 
 	var keyData struct {
-		Key string `json:"key"`
+		AdminSecret string `json:"adminSecret"`
 	}
 
 	err = json.Unmarshal(keyBytes, &keyData)
@@ -54,13 +69,23 @@ func GetAdminKey() (string, error) {
 		return "", err
 	}
 
-	return keyData.Key, nil
+	return keyData.AdminSecret, nil
 }
 
 func SetAdminKey(key string) error {
-	keyBytes, err := json.Marshal(key)
+	err := EnsureLocalFolderExists()
 	if err != nil {
 		return err
 	}
+
+	keyData := map[string]string{
+		"adminSecret": key,
+	}
+
+	keyBytes, err := json.Marshal(keyData)
+	if err != nil {
+		return err
+	}
+
 	return SaveFileInLocalFolder(keyFileName, keyBytes)
 }

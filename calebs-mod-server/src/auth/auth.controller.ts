@@ -7,9 +7,9 @@ export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Post('admin/login')
-  async login(@Body() dto: AdminLoginDto) {
+  login(@Body() dto: AdminLoginDto) {
     try {
-      return await this.authService.login(dto.adminSecret);
+      return this.authService.login(dto.adminSecret);
     } catch (error) {
       throw new UnauthorizedException('Invalid credentials');
     }

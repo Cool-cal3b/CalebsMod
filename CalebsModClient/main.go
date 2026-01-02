@@ -12,10 +12,9 @@ import (
 var assets embed.FS
 
 func main() {
-	// Create an instance of the app structure
 	app := NewApp()
+	admin := NewAdmin()
 
-	// Create application with options
 	err := wails.Run(&options.App{
 		Title:  "CalebsModClient",
 		Width:  1024,
@@ -27,6 +26,7 @@ func main() {
 		OnStartup:        app.startup,
 		Bind: []interface{}{
 			app,
+			admin,
 		},
 	})
 
