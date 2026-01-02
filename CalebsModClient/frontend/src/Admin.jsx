@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import { AdminKeyIsSet, IsLoggedIn, Login, SetAdminKey, ClearAdminKey } from '../wailsjs/go/main/Admin';
+import ConfirmModal from './components/ConfirmModal';
 
 function Admin() {
 	const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -8,6 +9,7 @@ function Admin() {
 	const [adminKeyInput, setAdminKeyInput] = useState('');
 	const [error, setError] = useState('');
 	const [loading, setLoading] = useState(false);
+	const [showClearModal, setShowClearModal] = useState(false);
 
 	useEffect(() => {
 		checkAuthStatus();
@@ -72,10 +74,7 @@ function Admin() {
 	};
 
 	const handleClearAdminKey = async () => {
-		if (!confirm('Are you sure you want to clear the admin secret? You will need to enter it again.')) {
-			return;
-		}
-
+		setShowClearModal(false);
 		setLoading(true);
 		setError('');
 
@@ -126,24 +125,76 @@ function Admin() {
 
 	if (!isLoggedIn) {
 		return (
+			<>
+				<div id="Admin">
+					<h1>Admin Login</h1>
+					<p className="subtitle">Authenticate with the server</p>
+
+					<div className="auth-form glass-card">
+						{error && <p className="error-message">{error}</p>}
+						
+						<button 
+							className="mc-button large green" 
+							onClick={handleLogin}
+							disabled={loading}
+						>
+							{loading ? 'Logging in...' : 'Login to Server'}
+						</button>
+
+						<button 
+							className="mc-button" 
+							onClick={() => setShowClearModal(true)}
+							disabled={loading}
+						>
+							Update Admin Secret
+						</button>
+					</div>
+
+					<Link to="/" className="mc-button back-button">Back to Home</Link>
+				</div>
+
+				<ConfirmModal
+					isOpen={showClearModal}
+					title="Clear Admin Secret?"
+					message="Are you sure you want to clear the admin secret? You will need to enter it again."
+					onConfirm={handleClearAdminKey}
+					onCancel={() => setShowClearModal(false)}
+				/>
+			</>
+		);
+	}
+
+	return (
+		<>
 			<div id="Admin">
-				<h1>Admin Login</h1>
-				<p className="subtitle">Authenticate with the server</p>
+				<h1>Admin Panel</h1>
+				
+				<div className="admin-sections">
+					<section className="admin-section">
+						<h2>Manage Mods</h2>
+						<button className="mc-button">Add Mod by URL</button>
+						<button className="mc-button">Upload Mod File</button>
+						<button className="mc-button">View All Mods</button>
+					</section>
 
-				<div className="auth-form glass-card">
-					{error && <p className="error-message">{error}</p>}
-					
-					<button 
-						className="mc-button large green" 
-						onClick={handleLogin}
-						disabled={loading}
-					>
-						{loading ? 'Logging in...' : 'Login to Server'}
-					</button>
+					<section className="admin-section">
+						<h2>Access Requests</h2>
+						<button className="mc-button">View Pending</button>
+						<button className="mc-button">View All</button>
+					</section>
 
+					<section className="admin-section">
+						<h2>Server Control</h2>
+						<button className="mc-button green">Start Server</button>
+						<button className="mc-button red">Stop Server</button>
+						<button className="mc-button">View Logs</button>
+					</section>
+				</div>
+
+				<div className="admin-footer">
 					<button 
 						className="mc-button" 
-						onClick={handleClearAdminKey}
+						onClick={() => setShowClearModal(true)}
 						disabled={loading}
 					>
 						Update Admin Secret
@@ -152,47 +203,15 @@ function Admin() {
 
 				<Link to="/" className="mc-button back-button">Back to Home</Link>
 			</div>
-		);
-	}
 
-	return (
-		<div id="Admin">
-			<h1>Admin Panel</h1>
-			
-			<div className="admin-sections">
-				<section className="admin-section">
-					<h2>Manage Mods</h2>
-					<button className="mc-button">Add Mod by URL</button>
-					<button className="mc-button">Upload Mod File</button>
-					<button className="mc-button">View All Mods</button>
-				</section>
-
-				<section className="admin-section">
-					<h2>Access Requests</h2>
-					<button className="mc-button">View Pending</button>
-					<button className="mc-button">View All</button>
-				</section>
-
-				<section className="admin-section">
-					<h2>Server Control</h2>
-					<button className="mc-button green">Start Server</button>
-					<button className="mc-button red">Stop Server</button>
-					<button className="mc-button">View Logs</button>
-				</section>
-			</div>
-
-			<div className="admin-footer">
-				<button 
-					className="mc-button" 
-					onClick={handleClearAdminKey}
-					disabled={loading}
-				>
-					Update Admin Secret
-				</button>
-			</div>
-
-			<Link to="/" className="mc-button back-button">Back to Home</Link>
-		</div>
+			<ConfirmModal
+				isOpen={showClearModal}
+				title="Clear Admin Secret?"
+				message="Are you sure you want to clear the admin secret? You will need to enter it again."
+				onConfirm={handleClearAdminKey}
+				onCancel={() => setShowClearModal(false)}
+			/>
+		</>
 	);
 }
 

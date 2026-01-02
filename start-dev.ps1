@@ -1,6 +1,6 @@
 # CalebsMod Development Startup Script
-# Usage: .\start-dev.ps1                    (single window)
-#        .\start-dev.ps1 -sw   (separate windows)
+# Usage: .\start-dev.ps1        (launches services in separate windows, Ctrl+C stops all)
+#        .\start-dev.ps1 -sw     (launches and exits, close windows manually)
 
 param([switch]$sw)
 
@@ -50,32 +50,51 @@ if (-not (Test-Path (Join-Path $clientPath "frontend/node_modules"))) {
 
 if ($sw) {
 	Write-Host "[INFO] Starting in separate windows..." -ForegroundColor Cyan
+	Write-Host "[WARN] Close windows manually when done" -ForegroundColor Yellow
 	Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$serverPath'; npm run start:dev"
 	Start-Sleep -Seconds 2
 	Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$clientPath'; wails dev"
 	Write-Host "[OK] Server: http://localhost:3000" -ForegroundColor Green
+	Write-Host "[INFO] Close each window to stop (or just close this one)" -ForegroundColor Cyan
 }
 else {
-	Write-Host "[INFO] Starting services..." -ForegroundColor Cyan
-	$serverJob = Start-Job -ScriptBlock { param($p); Set-Location $p; npm run start:dev } -ArgumentList $serverPath
+	Write-Host "[INFO] Starting services in separate windows..." -ForegroundColor Cyan
+	Write-Host "[INFO] This allows Ctrl+C to work properly" -ForegroundColor Yellow
+	
+	$serverProcess = Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$serverPath'; npm run start:dev" -PassThru
 	Start-Sleep -Seconds 3
-	$clientJob = Start-Job -ScriptBlock { param($p); Set-Location $p; wails dev } -ArgumentList $clientPath
-    
-	Write-Host "[OK] Running (Jobs: $($serverJob.Id), $($clientJob.Id)) - http://localhost:3000" -ForegroundColor Green
-	Write-Host "[INFO] Press Ctrl+C to stop" -ForegroundColor Yellow
-    
+	$clientProcess = Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$clientPath'; wails dev" -PassThru
+	
+	Write-Host "[OK] Server window opened (PID: $($serverProcess.Id))" -ForegroundColor Green
+	Write-Host "[OK] Client window opened (PID: $($clientProcess.Id))" -ForegroundColor Green
+	Write-Host "[OK] Server: http://localhost:3000" -ForegroundColor Green
+	Write-Host ""
+	Write-Host "[INFO] Press Ctrl+C to stop all services and close windows" -ForegroundColor Yellow
+	
+	$cleanup = {
+		param($sPid, $cPid)
+		Write-Host "`n[INFO] Cleaning up..." -ForegroundColor Yellow
+		Stop-Process -Id $sPid -Force -ErrorAction SilentlyContinue
+		Stop-Process -Id $cPid -Force -ErrorAction SilentlyContinue
+		Start-Sleep -Milliseconds 500
+		Write-Host "[OK] All services stopped" -ForegroundColor Green
+	}
+	
 	try {
 		while ($true) {
 			Start-Sleep -Seconds 1
-			if ($serverJob.State -ne "Running" -or $clientJob.State -ne "Running") {
-				Write-Host "[ERROR] Service stopped" -ForegroundColor Red
+			if ($serverProcess.HasExited -and $clientProcess.HasExited) {
+				Write-Host "`n[INFO] Both service windows were closed" -ForegroundColor Cyan
 				break
 			}
 		}
 	}
- finally {
-		Stop-Job $serverJob, $clientJob -ErrorAction SilentlyContinue
-		Remove-Job $serverJob, $clientJob -Force -ErrorAction SilentlyContinue
-		Write-Host "[OK] Stopped" -ForegroundColor Green
+	catch [System.Management.Automation.PipelineStoppedException] {
+		& $cleanup $serverProcess.Id $clientProcess.Id
+	}
+	finally {
+		if (-not $serverProcess.HasExited -or -not $clientProcess.HasExited) {
+			& $cleanup $serverProcess.Id $clientProcess.Id
+		}
 	}
 }
