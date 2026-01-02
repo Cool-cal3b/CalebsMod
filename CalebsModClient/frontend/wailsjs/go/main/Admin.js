@@ -6,6 +6,10 @@ export function AdminKeyIsSet() {
   return window['go']['main']['Admin']['AdminKeyIsSet']();
 }
 
+export function ClearAdminKey() {
+  return window['go']['main']['Admin']['ClearAdminKey']();
+}
+
 export function GetToken() {
   return window['go']['main']['Admin']['GetToken']();
 }

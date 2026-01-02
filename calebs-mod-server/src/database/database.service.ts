@@ -104,7 +104,7 @@ export class DatabaseService implements OnModuleInit {
     return this.db;
   }
 
-  prepare(sql: string) {
+  prepare(sql: string): Database.Statement {
     return this.db.prepare(sql);
   }
 

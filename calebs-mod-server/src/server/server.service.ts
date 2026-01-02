@@ -42,7 +42,7 @@ export class ServerService {
     const dockerStatus = await this.dockerService.getServerStatus();
     const rconConnected = this.rconService.isConnected();
 
-    let players = null;
+    let players: { online: number; max: number; players: string[] } | null = null;
     if (dockerStatus.running && rconConnected) {
       try {
         const playerList = await this.rconService.listPlayers();

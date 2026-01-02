@@ -77,6 +77,13 @@
     font-size: 3rem;
 }
 
+.admin-footer {
+    max-width: 600px;
+    margin: 2rem auto;
+    padding-top: 2rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
 /* Responsive adjustments */
 @media (max-width: 768px) {
     .app-logo {

@@ -3,6 +3,8 @@
 
 export function AdminKeyIsSet():Promise<boolean>;
 
+export function ClearAdminKey():Promise<void>;
+
 export function GetToken():Promise<string>;
 
 export function IsLoggedIn():Promise<boolean>;

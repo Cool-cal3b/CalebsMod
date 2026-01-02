@@ -12,7 +12,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { Response } from 'express';
+import type { Response } from 'express';
 import { ModpackService } from './modpack.service';
 import { AddModDto, CreatePackDto, UpdatePackDto } from './dto/pack.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';

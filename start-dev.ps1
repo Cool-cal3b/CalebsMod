@@ -9,6 +9,8 @@ $projectRoot = $PSScriptRoot
 $serverPath = Join-Path $projectRoot "calebs-mod-server"
 $clientPath = Join-Path $projectRoot "CalebsModClient"
 
+$env:CALEBS_MOD_ENV = "dev"
+
 Write-Host "CalebsMod Dev Environment" -ForegroundColor Cyan
 Write-Host ""
 

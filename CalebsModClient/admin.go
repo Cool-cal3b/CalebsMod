@@ -32,6 +32,10 @@ func (a *Admin) SetAdminKey(key string) error {
 	return go_services.SetAdminKey(key)
 }
 
+func (a *Admin) ClearAdminKey() error {
+	return go_services.ClearAdminKey()
+}
+
 func (a *Admin) GetToken() string {
 	return go_services.GetToken()
 }

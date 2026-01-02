@@ -1,4 +1,4 @@
-import { Controller, Post, Body, UnauthorizedException } from '@nestjs/common';
+import { Controller, Post, Body, UnauthorizedException, HttpCode, HttpStatus } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { AdminLoginDto } from './dto/auth.dto';
 
@@ -7,11 +7,15 @@ export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Post('admin/login')
-  login(@Body() dto: AdminLoginDto) {
+  @HttpCode(HttpStatus.OK)
+  async login(@Body() dto: AdminLoginDto) {
     try {
-      return this.authService.login(dto.adminSecret);
+      return await this.authService.login(dto.adminSecret);
     } catch (error) {
-      throw new UnauthorizedException('Invalid credentials');
+      throw new UnauthorizedException({
+        message: 'Invalid admin secret',
+        code: 'INVALID_ADMIN_SECRET',
+      });
     }
   }
 }

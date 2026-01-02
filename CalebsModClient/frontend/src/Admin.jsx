@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import { useState, useEffect } from 'react';
-import { AdminKeyIsSet, IsLoggedIn, Login, SetAdminKey } from '../wailsjs/go/main/Admin';
+import { AdminKeyIsSet, IsLoggedIn, Login, SetAdminKey, ClearAdminKey } from '../wailsjs/go/main/Admin';
 
 function Admin() {
 	const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -36,7 +36,14 @@ function Admin() {
 			await Login();
 			setIsLoggedIn(true);
 		} catch (err) {
-			setError('Login failed. Check your connection to the server.');
+			const errorMsg = err.toString();
+			if (errorMsg.includes('invalid admin secret')) {
+				setError('Invalid admin secret. The key has been cleared. Please enter it again.');
+				setAdminKeyIsSet(false);
+				setAdminKeyInput('');
+			} else {
+				setError('Login failed. Check your connection to the server.');
+			}
 			console.error(err);
 		} finally {
 			setLoading(false);
@@ -58,6 +65,27 @@ function Admin() {
 			setAdminKeyInput('');
 		} catch (err) {
 			setError('Failed to save admin key');
+			console.error(err);
+		} finally {
+			setLoading(false);
+		}
+	};
+
+	const handleClearAdminKey = async () => {
+		if (!confirm('Are you sure you want to clear the admin secret? You will need to enter it again.')) {
+			return;
+		}
+
+		setLoading(true);
+		setError('');
+
+		try {
+			await ClearAdminKey();
+			setAdminKeyIsSet(false);
+			setIsLoggedIn(false);
+			setAdminKeyInput('');
+		} catch (err) {
+			setError('Failed to clear admin key');
 			console.error(err);
 		} finally {
 			setLoading(false);
@@ -112,6 +140,14 @@ function Admin() {
 					>
 						{loading ? 'Logging in...' : 'Login to Server'}
 					</button>
+
+					<button 
+						className="mc-button" 
+						onClick={handleClearAdminKey}
+						disabled={loading}
+					>
+						Update Admin Secret
+					</button>
 				</div>
 
 				<Link to="/" className="mc-button back-button">Back to Home</Link>
@@ -143,6 +179,16 @@ function Admin() {
 					<button className="mc-button red">Stop Server</button>
 					<button className="mc-button">View Logs</button>
 				</section>
+			</div>
+
+			<div className="admin-footer">
+				<button 
+					className="mc-button" 
+					onClick={handleClearAdminKey}
+					disabled={loading}
+				>
+					Update Admin Secret
+				</button>
 			</div>
 
 			<Link to="/" className="mc-button back-button">Back to Home</Link>

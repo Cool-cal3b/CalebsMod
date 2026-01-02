@@ -10,5 +10,5 @@ func GetServerUrl() string {
 }
 
 func IsRunningInDevMode() bool {
-	return os.Getenv("ENV") == "dev"
+	return os.Getenv("CALEBS_MOD_ENV") == "dev"
 }

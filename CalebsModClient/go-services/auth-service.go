@@ -2,12 +2,15 @@ package go_services
 
 import (
 	"encoding/json"
+	"errors"
 	"time"
 )
 
 var tempToken string = ""
 var tokenExpiresAt int64 = 0
 var keyFileName string = "admin-key.json"
+
+var ErrInvalidAdminSecret = errors.New("invalid admin secret")
 
 func Login() error {
 	adminKey, err := GetAdminKey()
@@ -32,10 +35,22 @@ func Login() error {
 	var apiResponseData struct {
 		AccessToken string `json:"access_token"`
 		ExpiresAt   int64  `json:"expires_at"`
+		Message     string `json:"message"`
+		Code        string `json:"code"`
 	}
 	err = json.Unmarshal(apiResponse, &apiResponseData)
 	if err != nil {
 		return err
+	}
+
+	if apiResponseData.Code == "INVALID_ADMIN_SECRET" {
+		ClearAdminKey()
+		return ErrInvalidAdminSecret
+	}
+
+	if apiResponseData.AccessToken == "" {
+		ClearAdminKey()
+		return ErrInvalidAdminSecret
 	}
 
 	tempToken = apiResponseData.AccessToken
@@ -88,4 +103,8 @@ func SetAdminKey(key string) error {
 	}
 
 	return SaveFileInLocalFolder(keyFileName, keyBytes)
+}
+
+func ClearAdminKey() error {
+	return DeleteFileInLocalFolder(keyFileName)
 }
