@@ -1,6 +1,12 @@
-import { useState } from 'react';
+interface ConfirmModalProps {
+	isOpen: boolean;
+	title: string;
+	message: string;
+	onConfirm: () => void;
+	onCancel: () => void;
+}
 
-function ConfirmModal({ isOpen, title, message, onConfirm, onCancel }) {
+function ConfirmModal({ isOpen, title, message, onConfirm, onCancel }: ConfirmModalProps) {
 	if (!isOpen) return null;
 
 	return (
@@ -22,4 +28,3 @@ function ConfirmModal({ isOpen, title, message, onConfirm, onCancel }) {
 }
 
 export default ConfirmModal;
-

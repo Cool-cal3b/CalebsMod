@@ -25,3 +25,11 @@ export function Login() {
 export function SetAdminKey(arg1) {
   return window['go']['main']['Admin']['SetAdminKey'](arg1);
 }
+
+export function StartServer() {
+  return window['go']['main']['Admin']['StartServer']();
+}
+
+export function StopServer() {
+  return window['go']['main']['Admin']['StopServer']();
+}

@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import { useState, useEffect } from 'react';
-import { AdminKeyIsSet, IsLoggedIn, Login, SetAdminKey, ClearAdminKey } from '../wailsjs/go/main/Admin';
+import { AdminKeyIsSet, IsLoggedIn, Login, SetAdminKey, ClearAdminKey, StartServer, StopServer } from '../wailsjs/go/main/Admin';
+import { ServerStatus, MinecraftServerResponse } from './types/admin-types';
 import ConfirmModal from './components/ConfirmModal';
 
 function Admin() {
@@ -88,6 +89,34 @@ function Admin() {
 			console.error(err);
 		} finally {
 			setLoading(false);
+		}
+	};
+
+	const handleStartServer = async () => {
+		try {
+			const response: MinecraftServerResponse = await StartServer();
+			if (response.status === ServerStatus.STARTED) {
+				setError("Successfully started server");
+			} else {
+				setError("Failed to start server: " + response.message);
+			}
+		} catch (err) {
+			setError('Failed to start server: ' + (err as Error).message);
+			console.error(err);
+		}
+	};
+
+	const handleStopServer = async () => {
+		try {
+			const response: MinecraftServerResponse = await StopServer();
+			if (response.status === ServerStatus.STOPPED) {
+				setError("Successfully stopped server");
+			} else {
+				setError("Failed to stop server: " + response.message);
+			}
+		} catch (err) {
+			setError('Failed to stop server: ' + (err as Error).message);
+			console.error(err);
 		}
 	};
 
@@ -185,8 +214,8 @@ function Admin() {
 
 					<section className="admin-section">
 						<h2>Server Control</h2>
-						<button className="mc-button green">Start Server</button>
-						<button className="mc-button red">Stop Server</button>
+						<button className="mc-button green" onClick={handleStartServer}>Start Server</button>
+						<button className="mc-button red" onClick={handleStopServer}>Stop Server</button>
 						<button className="mc-button">View Logs</button>
 					</section>
 				</div>

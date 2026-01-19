@@ -45,7 +45,7 @@ export class DockerService implements OnModuleInit {
     }
   }
 
-  async createContainer() {
+  async createContainer(): Dockerode.Container {
     const image =
       this.configService.get<string>('MINECRAFT_DOCKER_IMAGE') ||
       'itzg/minecraft-server:latest';
@@ -104,8 +104,8 @@ export class DockerService implements OnModuleInit {
     return container;
   }
 
-  async startServer() {
-    let container = await this.getContainer();
+  async startServer(): Promise<{ status: ServerStatus; message: string }> {
+    let container: Dockerode.Container | null = await this.getContainer();
 
     if (!container) {
       container = await this.createContainer();
@@ -115,10 +115,10 @@ export class DockerService implements OnModuleInit {
 
     if (!info.State.Running) {
       await container.start();
-      return { status: 'started', message: 'Minecraft server started' };
+      return { status: ServerStatus.STARTED, message: 'Minecraft server started' };
     }
 
-    return { status: 'already_running', message: 'Server is already running' };
+    return { status: ServerStatus.ALREADY_RUNNING, message: 'Server is already running' };
   }
 
   async stopServer() {
@@ -211,4 +211,13 @@ export class DockerService implements OnModuleInit {
       network_tx: stats.networks?.eth0?.tx_bytes || 0,
     };
   }
+}
+
+export enum ServerStatus {
+  STARTED = 'started',
+  ALREADY_RUNNING = 'already_running',
+  STOPPED = 'stopped',
+  ALREADY_STOPPED = 'already_stopped',
+  NOT_FOUND = 'not_found',
+  ERROR = 'error',
 }
