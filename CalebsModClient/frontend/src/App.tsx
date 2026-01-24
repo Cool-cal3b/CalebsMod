@@ -61,11 +61,11 @@ function App() {
 		   
 		   <div className="status-bar">
 			   <span className="status-item">Server: <span className="status-online">Online</span></span>
-			   <span className="status-item">Mods: <span className="status-synced">Synced</span></span>
+			   <span className="status-item">Mods: <span className="status-synced">Synced</span> (Its a lie!)</span>
 		   </div>
 
 		   <div className="options">
-				<button className="mc-button large" onClick={syncMods}>Sync Mods</button>
+				<button className="mc-button large" onClick={syncMods}>Sync Mods (Coming Soon)</button>
 				<button className="mc-button large green" onClick={connectToServer} disabled={!launcherInstalled}>Launch Minecraft</button>
 				<button className="mc-button large" onClick={installForge} disabled={isInstalling}>
 					{isInstalling ? "Installing..." : (launcherInstalled ? "Reinstall Launcher" : "Install Launcher")}
