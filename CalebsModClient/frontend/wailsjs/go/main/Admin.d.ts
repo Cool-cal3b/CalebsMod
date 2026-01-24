@@ -6,6 +6,8 @@ export function AdminKeyIsSet():Promise<boolean>;
 
 export function ClearAdminKey():Promise<void>;
 
+export function GetServerStatus():Promise<go_services.ServerStatusResponse>;
+
 export function GetToken():Promise<string>;
 
 export function IsLoggedIn():Promise<boolean>;

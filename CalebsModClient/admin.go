@@ -36,6 +36,10 @@ func (a *Admin) ClearAdminKey() error {
 	return go_services.ClearAdminKey()
 }
 
+func (a *Admin) GetServerStatus() (go_services.ServerStatusResponse, error) {
+	return go_services.GetServerStatus()
+}
+
 func (a *Admin) StartServer() (go_services.ServerStatus, string, error) {
 	return go_services.StartServer()
 }

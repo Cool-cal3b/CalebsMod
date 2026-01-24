@@ -10,6 +10,10 @@ export function ClearAdminKey() {
   return window['go']['main']['Admin']['ClearAdminKey']();
 }
 
+export function GetServerStatus() {
+  return window['go']['main']['Admin']['GetServerStatus']();
+}
+
 export function GetToken() {
   return window['go']['main']['Admin']['GetToken']();
 }

@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom';
 import { useState, useEffect } from 'react';
-import { AdminKeyIsSet, IsLoggedIn, Login, SetAdminKey, ClearAdminKey, StartServer, StopServer, UpdateDns } from '../wailsjs/go/main/Admin';
-import { ServerStatus, MinecraftServerResponse } from './types/admin-types';
+import { AdminKeyIsSet, IsLoggedIn, Login, SetAdminKey, ClearAdminKey, StartServer, StopServer, UpdateDns, GetServerStatus } from '../wailsjs/go/main/Admin';
+import { ServerStatus, MinecraftServerResponse, ServerStatusResponse } from './types/admin-types';
 import ConfirmModal from './components/ConfirmModal';
 
 function Admin() {
@@ -12,9 +12,44 @@ function Admin() {
 	const [loading, setLoading] = useState(false);
 	const [showClearModal, setShowClearModal] = useState(false);
 
+	const [serverIsRunning, setServerIsRunning] = useState<boolean | null>(null);
+	const [serverStatus, setServerStatus] = useState<string | null>(null);
+	const [numberOfPlayers, setNumberOfPlayers] = useState<number | null>(null);
+	const [maxPlayers, setMaxPlayers] = useState<number | null>(null);
+
 	useEffect(() => {
 		checkAuthStatus();
 	}, []);
+
+	useEffect(() => {
+		if (!isLoggedIn) {
+			return;
+		}
+
+		let timeoutId: number;
+
+		const getServerStatus = async () => {
+			try {
+				const response: ServerStatusResponse = await GetServerStatus();
+				setServerIsRunning(response.dockerStatus.running);
+				setServerStatus(response.dockerStatus.status);
+				setNumberOfPlayers(response.players.online);
+				setMaxPlayers(response.players.max);
+			} catch (err) {
+				console.error('Failed to fetch server status:', err);
+			}
+
+			timeoutId = setTimeout(getServerStatus, 2000);
+		};
+
+		getServerStatus();
+
+		return () => {
+			if (timeoutId) {
+				clearTimeout(timeoutId);
+			}
+		};
+	}, [isLoggedIn]);
 
 	const checkAuthStatus = async () => {
 		try {
@@ -208,6 +243,40 @@ function Admin() {
 		<>
 			<div id="Admin">
 				<h1>Admin Panel</h1>
+
+				<div className="server-stats">
+					<div className="stat-card">
+						<div className="stat-label">Server Status</div>
+						<div className="stat-value">
+							{serverIsRunning === null ? (
+								<span className="status-loading">Loading...</span>
+							) : serverIsRunning ? (
+								<span className="status-online">Running</span>
+							) : (
+								<span className="status-offline">Stopped</span>
+							)}
+						</div>
+						{serverStatus && <div className="stat-detail">{serverStatus}</div>}
+					</div>
+
+					<div className="stat-card">
+						<div className="stat-label">Players Online</div>
+						<div className="stat-value">
+							{numberOfPlayers === null ? (
+								<span className="status-loading">Loading...</span>
+							) : (
+								<>
+									<span className={numberOfPlayers > 0 ? 'player-count active' : 'player-count'}>
+										{numberOfPlayers}
+									</span>
+									{maxPlayers !== null && (
+										<span className="player-max"> / {maxPlayers}</span>
+									)}
+								</>
+							)}
+						</div>
+					</div>
+				</div>
 				
 				<div className="admin-sections">
 					<section className="admin-section">

@@ -5,6 +5,21 @@ import (
 	"fmt"
 )
 
+func GetServerStatus() (ServerStatusResponse, error) {
+	response, err := MakeAuthenticatedGetRequest("/api/server/status")
+	if err != nil {
+		return ServerStatusResponse{}, err
+	}
+
+	var serverStatusResponse ServerStatusResponse
+	err = json.Unmarshal(response, &serverStatusResponse)
+	if err != nil {
+		return ServerStatusResponse{}, err
+	}
+
+	return serverStatusResponse, nil
+}
+
 func StartServer() (ServerStatus, string, error) {
 	fmt.Println("Starting server...")
 	response, err := MakeAuthenticatedPostRequest("/api/server/start", nil)
@@ -67,3 +82,23 @@ const (
 	ServerStatusNotFound       ServerStatus = "not_found"
 	ServerStatusError          ServerStatus = "error"
 )
+
+type ServerStatusResponse struct {
+	DockerStatus  DockerStatus `json:"dockerStatus"`
+	RconConnected bool         `json:"rconConnected"`
+	Players       PlayersInfo  `json:"players"`
+}
+
+type DockerStatus struct {
+	Exists     bool   `json:"exists"`
+	Running    bool   `json:"running"`
+	Status     string `json:"status"`
+	StartedAt  string `json:"startedAt"`
+	FinishedAt string `json:"finishedAt"`
+}
+
+type PlayersInfo struct {
+	Online  int      `json:"online"`
+	Max     int      `json:"max"`
+	Players []string `json:"players"`
+}
