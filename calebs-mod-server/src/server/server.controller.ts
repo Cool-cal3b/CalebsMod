@@ -30,6 +30,16 @@ export class ServerController {
     return await this.serverService.getIpAndPort();
   }
 
+  @Get('latest-client-version')
+  async getLatestClientVersion() {
+    return await this.serverService.getLatestClientVersion();
+  }
+
+  @Get('latest-client-release')
+  async getLatestClientRelease() {
+    return await this.serverService.getLatestClientRelease();
+  }
+
   @Post('start')
   @UseGuards(JwtAuthGuard)
   async startServer() {

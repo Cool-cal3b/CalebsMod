@@ -1,16 +1,39 @@
 import { Injectable } from '@nestjs/common';
 import { DockerService } from '../docker/docker.service';
 import { RconService } from '../rcon/rcon.service';
+import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import * as fs from 'fs';
+import * as path from 'path';
 
 const CLOUDFLARE_DOMAIN = 'calebwash.com';
 const CLOUDFLARE_SUBDOMAIN = 'mc';
 
 @Injectable()
 export class ServerService {
+  private s3Client: S3Client;
+  private readonly S3_BUCKET = 'calebsmod-downloads';
+  private readonly S3_REGION = 'us-east-1';
+
   constructor(
     private dockerService: DockerService,
     private rconService: RconService,
-  ) {}
+  ) {
+    const accessKeyId = process.env.S3_ACCESS_KEY_ID;
+    const secretAccessKey = process.env.S3_SECRET_ACCESS_KEY;
+
+    if (!accessKeyId || !secretAccessKey) {
+      throw new Error('S3 credentials not configured in environment variables');
+    }
+
+    this.s3Client = new S3Client({
+      region: this.S3_REGION,
+      credentials: {
+        accessKeyId,
+        secretAccessKey,
+      },
+    });
+  }
 
   async startServer() {
     return await this.dockerService.startServer();
@@ -159,6 +182,49 @@ export class ServerService {
     } catch (error) {
       console.error('Failed to update DNS:', error);
       throw new Error(`Failed to update DNS: ${error.message}`);
+    }
+  }
+
+  async getLatestClientVersion(): Promise<string> {
+    const versionFilePath = path.join(__dirname, '..', '..', 'CalebsModClientVersion.txt');
+    return fs.readFileSync(versionFilePath, 'utf-8').trim();
+  }
+
+  async getLatestClientRelease(): Promise<{ version: string; downloadUrl: string }> {
+    const versionFilePath = path.join(__dirname, '..', '..', 'CalebsModClientVersion.txt');
+    
+    let version: string;
+    try {
+      version = fs.readFileSync(versionFilePath, 'utf-8').trim();
+    } catch (error) {
+      console.error('Error reading version file:', error);
+      throw new Error('Unable to read client version file');
+    }
+
+    if (!version || !/^\d+\.\d+$/.test(version)) {
+      throw new Error('Invalid version format in version file');
+    }
+
+    const fileName = `CalebsModClient-${version}.zip`;
+    const s3Key = `client-releases/${fileName}`;
+
+    const command = new GetObjectCommand({
+      Bucket: this.S3_BUCKET,
+      Key: s3Key,
+    });
+
+    try {
+      const downloadUrl = await getSignedUrl(this.s3Client, command, {
+        expiresIn: 3600,
+      });
+
+      return {
+        version,
+        downloadUrl,
+      };
+    } catch (error) {
+      console.error('Error generating signed URL:', error);
+      throw new Error(`Failed to generate download URL for version ${version}`);
     }
   }
 
