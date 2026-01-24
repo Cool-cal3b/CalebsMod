@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 )
 
 type AutoConnectConfig struct {
@@ -131,17 +132,28 @@ func downloadAndInstallPrism(destPath string) error {
 	var assetName string
 
 	for _, asset := range release.Assets {
-		if runtime.GOOS == "windows" && filepath.Ext(asset.Name) == ".zip" && 
-		   (filepath.Base(asset.Name) == "PrismLauncher-Windows-Portable.zip" ||
-		    filepath.Base(asset.Name) == "PrismLauncher-Windows-MSVC-Portable.zip") {
-			downloadURL = asset.BrowserDownloadURL
-			assetName = asset.Name
-			break
+		name := asset.Name
+		if runtime.GOOS == "windows" && filepath.Ext(name) == ".zip" {
+			lowerName := strings.ToLower(name)
+			if strings.Contains(lowerName, "windows") && 
+			   strings.Contains(lowerName, "portable") &&
+			   !strings.Contains(lowerName, "legacy") {
+				downloadURL = asset.BrowserDownloadURL
+				assetName = asset.Name
+				break
+			}
 		}
 	}
 
 	if downloadURL == "" {
-		return fmt.Errorf("could not find Windows portable release")
+		return fmt.Errorf("could not find Windows portable release. Available assets: %v", 
+			func() []string {
+				names := make([]string, len(release.Assets))
+				for i, a := range release.Assets {
+					names[i] = a.Name
+				}
+				return names
+			}())
 	}
 
 	tempDir := os.TempDir()
