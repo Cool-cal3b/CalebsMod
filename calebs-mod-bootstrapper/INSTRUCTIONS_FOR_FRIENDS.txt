@@ -1,0 +1,45 @@
+🎮 CALEB'S MOD - INSTALLATION INSTRUCTIONS 🎮
+
+Hey! Here's how to install and play:
+
+1️⃣ DOWNLOAD
+   - Save the CalebsModBootstrapper.exe file I sent you
+
+2️⃣ RUN IT
+   - Double-click the CalebsModBootstrapper.exe file
+   - If Windows shows a security warning, click "More info" then "Run anyway"
+     (It's safe, Windows just doesn't recognize it because it's not signed)
+
+3️⃣ WAIT
+   - The first time will download the game client (takes a few minutes)
+   - You'll see progress updates in the window
+
+4️⃣ PLAY!
+   - The game will launch automatically when ready
+   - Next time you run the bootstrapper, it will auto-update if needed
+
+⚠️ TROUBLESHOOTING:
+
+"My antivirus blocked it!"
+→ Add an exception for CalebsModBootstrapper.exe
+→ It's safe, I promise! Your antivirus is just being cautious
+
+"Nothing is happening!"
+→ Make sure you have a good internet connection
+→ Try running as administrator (right-click → Run as administrator)
+
+"The server says it's offline!"
+→ The server might be down temporarily, try again later
+→ Message me to check if it's running
+
+📍 WHERE ARE THE FILES?
+The game installs to: %LOCALAPPDATA%\CalebsMod\
+(You can paste that into Windows Explorer to see the files)
+
+🔄 UPDATES:
+Just run the bootstrapper again anytime - it automatically checks for updates!
+
+💬 QUESTIONS?
+Message me if you have any issues!
+
+Have fun! 🚀
