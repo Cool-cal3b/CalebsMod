@@ -13,7 +13,7 @@ const CLOUDFLARE_SUBDOMAIN = 'mc';
 export class ServerService {
   private s3Client: S3Client;
   private readonly S3_BUCKET = 'calebsmod-downloads';
-  private readonly S3_REGION = 'us-east-1';
+  private readonly S3_REGION = 'us-west-1';
 
   constructor(
     private dockerService: DockerService,
@@ -32,6 +32,8 @@ export class ServerService {
         accessKeyId,
         secretAccessKey,
       },
+      endpoint: `https://s3.${this.S3_REGION}.amazonaws.com`,
+      forcePathStyle: false,
     });
   }
 
@@ -208,6 +210,7 @@ export class ServerService {
     const fileName = `CalebsModClient-${version}.zip`;
     const s3Key = `client-releases/${fileName}`;
 
+    console.log(`S3_REGION: ${this.S3_REGION} S3_BUCKET: ${this.S3_BUCKET} s3Key: ${s3Key}`);
     const command = new GetObjectCommand({
       Bucket: this.S3_BUCKET,
       Key: s3Key,

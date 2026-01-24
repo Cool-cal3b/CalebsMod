@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	ServerURL         = "https://mc.calebwash.com:3000"
+	ServerURL         = "https://mc.calebwash.com"
 	VersionEndpoint   = "/api/server/latest-client-release"
 	ClientExecutable  = "CalebsModClient.exe"
 	VersionFileName   = "CurrentCalebModClientVersion.txt"
@@ -201,6 +201,12 @@ func performUpdate(appDataPath string, release *ReleaseInfo) error {
 func downloadFile(filepath string, url string) error {
 	client := &http.Client{
 		Timeout: 10 * time.Minute,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 10 {
+				return fmt.Errorf("too many redirects")
+			}
+			return nil
+		},
 	}
 
 	resp, err := client.Get(url)
@@ -210,7 +216,7 @@ func downloadFile(filepath string, url string) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("server returned status %d", resp.StatusCode)
+		return fmt.Errorf("server returned status %d for URL: %s", resp.StatusCode, url)
 	}
 
 	out, err := os.Create(filepath)

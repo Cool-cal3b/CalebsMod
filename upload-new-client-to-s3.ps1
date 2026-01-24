@@ -58,7 +58,7 @@ if ([string]::IsNullOrWhiteSpace($s3AccessKey) -or [string]::IsNullOrWhiteSpace(
 
 $env:AWS_ACCESS_KEY_ID = $s3AccessKey
 $env:AWS_SECRET_ACCESS_KEY = $s3SecretKey
-$env:AWS_DEFAULT_REGION = "us-east-1"
+$env:AWS_DEFAULT_REGION = "us-west-1"
 
 Write-Host "AWS credentials loaded" -ForegroundColor Green
 Write-Host ""
