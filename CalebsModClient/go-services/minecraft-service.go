@@ -316,7 +316,14 @@ func launchPrismInstance(prismPath, instanceName string) error {
 }
 
 func getServerAddress() (string, error) {
-	response, err := MakeAuthenticatedGetRequest("/api/server/ip-and-port")
+	baseUrl := GetServerUrl()
+	resp, err := http.Get(baseUrl + "/api/server/ip-and-port")
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return "", err
 	}
@@ -327,7 +334,7 @@ func getServerAddress() (string, error) {
 		ServerAddress string `json:"serverAddress"`
 	}
 
-	err = json.Unmarshal(response, &ipAndPortResponseData)
+	err = json.Unmarshal(body, &ipAndPortResponseData)
 	if err != nil {
 		return "", err
 	}
