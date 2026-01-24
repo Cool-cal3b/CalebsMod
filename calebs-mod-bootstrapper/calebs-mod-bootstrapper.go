@@ -141,7 +141,8 @@ func getLatestRelease() (*ReleaseInfo, error) {
 }
 
 func performUpdate(appDataPath string, release *ReleaseInfo) error {
-	tempZipPath := filepath.Join(appDataPath, "client"+TempDownloadSuffix)
+	tempZipPath := filepath.Join(appDataPath, "client.zip"+TempDownloadSuffix)
+	finalZipPath := filepath.Join(appDataPath, "client.zip")
 	tempExtractPath := filepath.Join(appDataPath, "client_new")
 	oldClientPath := filepath.Join(appDataPath, "client_old")
 
@@ -158,9 +159,14 @@ func performUpdate(appDataPath string, release *ReleaseInfo) error {
 	}
 	fmt.Println("Verification successful!")
 
-	fmt.Println("\nStep 3/5: Extracting new client...")
-	if err := extractZip(tempZipPath, tempExtractPath); err != nil {
+	if err := os.Rename(tempZipPath, finalZipPath); err != nil {
 		os.Remove(tempZipPath)
+		return fmt.Errorf("failed to finalize download: %w", err)
+	}
+
+	fmt.Println("\nStep 3/5: Extracting new client...")
+	if err := extractZip(finalZipPath, tempExtractPath); err != nil {
+		os.Remove(finalZipPath)
 		os.RemoveAll(tempExtractPath)
 		return fmt.Errorf("extraction failed: %w", err)
 	}
@@ -192,7 +198,7 @@ func performUpdate(appDataPath string, release *ReleaseInfo) error {
 		fmt.Printf("Warning: Could not update version file: %v\n", err)
 	}
 
-	os.Remove(tempZipPath)
+	os.Remove(finalZipPath)
 	os.RemoveAll(tempExtractPath)
 
 	return nil
