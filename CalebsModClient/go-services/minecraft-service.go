@@ -42,8 +42,20 @@ func StartMinecraftClient() (bool, error) {
 		return false, fmt.Errorf("failed to get server address: %w", err)
 	}
 
-	if err := ensureCalebsModInstance(prismPath); err != nil {
-		return false, fmt.Errorf("failed to ensure CalebsMod instance: %w", err)
+	instanceExists, err := checkInstanceExists(prismPath)
+	if err != nil {
+		return false, fmt.Errorf("failed to check instance: %w", err)
+	}
+
+	if !instanceExists {
+		if err := createInstanceViaPrismUI(prismPath); err != nil {
+			return false, err
+		}
+		return false, fmt.Errorf("instance created - please click 'Launch Minecraft' again after setting up your Microsoft account in PrismLauncher")
+	}
+
+	if err := syncModsToInstance(filepath.Join(prismPath, "instances", INSTANCE_NAME)); err != nil {
+		return false, fmt.Errorf("failed to sync mods: %w", err)
 	}
 
 	if err := launchPrismInstance(prismPath, INSTANCE_NAME, serverAddress); err != nil {
@@ -268,55 +280,93 @@ func unzip(src, dest string) error {
 	return nil
 }
 
-func ensureCalebsModInstance(prismPath string) error {
+func checkInstanceExists(prismPath string) (bool, error) {
 	instancesPath := filepath.Join(prismPath, "instances", INSTANCE_NAME)
+	instanceCfgPath := filepath.Join(instancesPath, "instance.cfg")
 	
-	if _, err := os.Stat(instancesPath); os.IsNotExist(err) {
-		if err := createCalebsModInstance(prismPath); err != nil {
-			return err
-		}
+	if _, err := os.Stat(instanceCfgPath); os.IsNotExist(err) {
+		return false, nil
 	}
-
-	return syncModsToInstance(instancesPath)
+	
+	return true, nil
 }
 
-func createCalebsModInstance(prismPath string) error {
-	instancesPath := filepath.Join(prismPath, "instances", INSTANCE_NAME)
-	minecraftPath := filepath.Join(instancesPath, ".minecraft")
-	
-	if err := os.MkdirAll(minecraftPath, 0755); err != nil {
-		return err
+func createInstanceViaPrismUI(prismPath string) error {
+	if err := createModpackZip(prismPath); err != nil {
+		return fmt.Errorf("failed to create modpack: %w", err)
 	}
 
-	instanceCfg := fmt.Sprintf(`InstanceType=OneSix
-name=%s
+	modpackPath := filepath.Join(prismPath, "CalebsMod.zip")
+	prismExe := filepath.Join(prismPath, "prismlauncher.exe")
+	
+	cmd := exec.Command(prismExe, "-d", prismPath, "-I", modpackPath)
+	
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("failed to launch PrismLauncher: %w", err)
+	}
+
+	return fmt.Errorf("PrismLauncher opened - it will import the CalebsMod instance. After import:\n1. Log into your Microsoft account if prompted\n2. Close PrismLauncher\n3. Click 'Launch Minecraft' again")
+}
+
+func createModpackZip(prismPath string) error {
+	modpackPath := filepath.Join(prismPath, "CalebsMod.zip")
+	
+	zipFile, err := os.Create(modpackPath)
+	if err != nil {
+		return err
+	}
+	defer zipFile.Close()
+
+	zipWriter := zip.NewWriter(zipFile)
+	defer zipWriter.Close()
+
+	instanceCfg := `InstanceType=OneSix
+name=CalebsMod
 iconKey=default
 notes=CalebsMod Private Modpack
-`, INSTANCE_NAME)
-
-	if err := os.WriteFile(filepath.Join(instancesPath, "instance.cfg"), []byte(instanceCfg), 0644); err != nil {
+`
+	if err := addFileToZip(zipWriter, "instance.cfg", []byte(instanceCfg)); err != nil {
 		return err
 	}
 
 	mmcPackJson := `{
 	"components": [
 		{
+			"cachedName": "Minecraft",
+			"cachedRequires": [],
+			"cachedVersion": "1.20.1",
+			"important": true,
 			"uid": "net.minecraft",
 			"version": "1.20.1"
 		},
 		{
+			"cachedName": "Forge",
+			"cachedRequires": [
+				{
+					"uid": "net.minecraft"
+				}
+			],
+			"cachedVersion": "47.3.0",
 			"uid": "net.minecraftforge",
 			"version": "47.3.0"
 		}
 	],
 	"formatVersion": 1
 }`
-
-	if err := os.WriteFile(filepath.Join(instancesPath, "mmc-pack.json"), []byte(mmcPackJson), 0644); err != nil {
+	if err := addFileToZip(zipWriter, "mmc-pack.json", []byte(mmcPackJson)); err != nil {
 		return err
 	}
 
 	return nil
+}
+
+func addFileToZip(zipWriter *zip.Writer, filename string, data []byte) error {
+	writer, err := zipWriter.Create(filename)
+	if err != nil {
+		return err
+	}
+	_, err = writer.Write(data)
+	return err
 }
 
 func launchPrismInstance(prismPath, instanceName, serverAddress string) error {
