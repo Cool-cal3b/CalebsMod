@@ -49,8 +49,8 @@ function Show-Help {
 
 function Get-ServerPID {
     if (Test-Path $pidFile) {
-        $pid = Get-Content $pidFile -Raw
-        return [int]$pid.Trim()
+        $serverPid = Get-Content $pidFile -Raw
+        return [int]$serverPid.Trim()
     }
     return $null
 }
