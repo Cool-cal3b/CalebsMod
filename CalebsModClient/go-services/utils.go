@@ -6,7 +6,7 @@ func GetServerUrl() string {
 	if IsRunningInDevMode() {
 		return "http://localhost:3000"
 	}
-	return "https://mc.calebsmod.com"
+	return "http://mc.calebwash.com:3000"
 }
 
 func IsRunningInDevMode() bool {

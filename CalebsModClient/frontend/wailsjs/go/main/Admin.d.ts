@@ -17,3 +17,5 @@ export function SetAdminKey(arg1:string):Promise<void>;
 export function StartServer():Promise<go_services.ServerStatus>;
 
 export function StopServer():Promise<go_services.ServerStatus>;
+
+export function UpdateDns():Promise<boolean>;

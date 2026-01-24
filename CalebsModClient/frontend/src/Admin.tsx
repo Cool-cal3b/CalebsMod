@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import { useState, useEffect } from 'react';
-import { AdminKeyIsSet, IsLoggedIn, Login, SetAdminKey, ClearAdminKey, StartServer, StopServer } from '../wailsjs/go/main/Admin';
+import { AdminKeyIsSet, IsLoggedIn, Login, SetAdminKey, ClearAdminKey, StartServer, StopServer, UpdateDns } from '../wailsjs/go/main/Admin';
 import { ServerStatus, MinecraftServerResponse } from './types/admin-types';
 import ConfirmModal from './components/ConfirmModal';
 
@@ -39,13 +39,13 @@ function Admin() {
 			await Login();
 			setIsLoggedIn(true);
 		} catch (err) {
-			const errorMsg = err.toString();
-			if (errorMsg.includes('invalid admin secret')) {
+			const errorMsg = (err as Error).message;
+			if (errorMsg && errorMsg.includes('invalid admin secret')) {
 				setError('Invalid admin secret. The key has been cleared. Please enter it again.');
 				setAdminKeyIsSet(false);
 				setAdminKeyInput('');
 			} else {
-				setError('Login failed. Check your connection to the server.');
+				setError('Login failed. Check your connection to the server. Error: ' + err);
 			}
 			console.error(err);
 		} finally {
@@ -95,6 +95,7 @@ function Admin() {
 	const handleStartServer = async () => {
 		try {
 			const response: MinecraftServerResponse = await StartServer();
+			console.log(response);
 			if (response.status === ServerStatus.STARTED) {
 				setError("Successfully started server");
 			} else {
@@ -116,6 +117,16 @@ function Admin() {
 			}
 		} catch (err) {
 			setError('Failed to stop server: ' + (err as Error).message);
+			console.error(err);
+		}
+	};
+
+	const handleUpdateDns = async () => {
+		try {
+			await UpdateDns();
+			setError("Successfully updated DNS to mc.calebwash.com");
+		} catch (err) {
+			setError('Failed to update DNS: ' + (err as Error).message);
 			console.error(err);
 		}
 	};
@@ -216,6 +227,7 @@ function Admin() {
 						<h2>Server Control</h2>
 						<button className="mc-button green" onClick={handleStartServer}>Start Server</button>
 						<button className="mc-button red" onClick={handleStopServer}>Stop Server</button>
+						<button className="mc-button yellow" onClick={handleUpdateDns}>Update DNS</button>
 						<button className="mc-button">View Logs</button>
 					</section>
 				</div>

@@ -44,6 +44,10 @@ func (a *Admin) StopServer() (go_services.ServerStatus, string, error) {
 	return go_services.StopServer()
 }
 
+func (a *Admin) UpdateDns() (bool, string, error) {
+	return go_services.UpdateDns()
+}
+
 func (a *Admin) GetToken() string {
 	return go_services.GetToken()
 }

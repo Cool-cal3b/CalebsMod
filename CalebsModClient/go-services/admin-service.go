@@ -1,8 +1,12 @@
 package go_services
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"fmt"
+)
 
 func StartServer() (ServerStatus, string, error) {
+	fmt.Println("Starting server...")
 	response, err := MakeAuthenticatedPostRequest("/api/server/start", nil)
 	if err != nil {
 		return ServerStatusError, "", err
@@ -27,6 +31,25 @@ func StopServer() (ServerStatus, string, error) {
 	}
 
 	return minecraftServerResponseData.Status, minecraftServerResponseData.Message, nil
+}
+
+func UpdateDns() (bool, string, error) {
+	response, err := MakeAuthenticatedPostRequest("/api/server/update-dns", nil)
+	if err != nil {
+		return false, "", err
+	}
+
+	var genericResponseData struct {
+		Success bool   `json:"success"`
+		Message string `json:"message"`
+	}
+
+	err = json.Unmarshal(response, &genericResponseData)
+	if err != nil {
+		return false, "", err
+	}
+
+	return genericResponseData.Success, genericResponseData.Message, nil
 }
 
 var minecraftServerResponseData struct {

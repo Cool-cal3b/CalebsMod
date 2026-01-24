@@ -54,4 +54,10 @@ export class ServerController {
   async sendCommand(@Body() dto: SendCommandDto) {
     return await this.serverService.sendCommand(dto.command);
   }
+
+  @Post('update-dns')
+  @UseGuards(JwtAuthGuard)
+  async updateDns() {
+    return await this.serverService.updateDns();
+  }
 }

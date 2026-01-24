@@ -2,6 +2,9 @@ import { Injectable } from '@nestjs/common';
 import { DockerService } from '../docker/docker.service';
 import { RconService } from '../rcon/rcon.service';
 
+const CLOUDFLARE_DOMAIN = 'calebwash.com';
+const CLOUDFLARE_SUBDOMAIN = 'mc';
+
 @Injectable()
 export class ServerService {
   constructor(
@@ -51,13 +54,112 @@ export class ServerService {
       throw new Error('Unable to retrieve public IP address');
     }
 
-    const port = container?.NetworkSettings.Ports['25565/tcp']?.[0]?.HostPort || '25565';
+    const port = container?.NetworkSettings?.Ports?.['25565/tcp']?.[0]?.HostPort || '25565';
+    
+    const portString = port !== '25565' ? `:${port}` : '';
+    const serverAddress = `${CLOUDFLARE_SUBDOMAIN}.${CLOUDFLARE_DOMAIN}${portString}`;
     
     return {
       ip: publicIp,
       port: port,
-      serverAddress: `${publicIp}:${port}`,
+      serverAddress,
     };
+  }
+
+  async updateDns() {
+    console.log('Updating DNS');
+    const { ip } = await this.getIpAndPort();
+    
+    const apiToken = process.env.CLOUDFLARE_API_TOKEN;
+    const zoneId = process.env.CLOUDFLARE_ZONE_ID;
+
+    if (!apiToken || !zoneId) {
+      throw new Error('Cloudflare API credentials not configured');
+    }
+
+    const recordName = `${CLOUDFLARE_SUBDOMAIN}.${CLOUDFLARE_DOMAIN}`;
+
+    try {
+      const listUrl = `https://api.cloudflare.com/client/v4/zones/${zoneId}/dns_records?type=A&name=${recordName}`;
+      const listResponse = await fetch(listUrl, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${apiToken}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!listResponse.ok) {
+        const errorText = await listResponse.text();
+        throw new Error(`Cloudflare API error (list): ${listResponse.status} - ${errorText}`);
+      }
+
+      const listData = await listResponse.json();
+      
+      if (listData.result && listData.result.length > 0) {
+        const recordId = listData.result[0].id;
+        const updateUrl = `https://api.cloudflare.com/client/v4/zones/${zoneId}/dns_records/${recordId}`;
+        
+        const updateResponse = await fetch(updateUrl, {
+          method: 'PUT',
+          headers: {
+            'Authorization': `Bearer ${apiToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            type: 'A',
+            name: recordName,
+            content: ip,
+            ttl: 1,
+            proxied: false,
+          }),
+        });
+
+        if (!updateResponse.ok) {
+          const errorText = await updateResponse.text();
+          throw new Error(`Cloudflare API error (update): ${updateResponse.status} - ${errorText}`);
+        }
+
+        return {
+          success: true,
+          message: `DNS record for ${recordName} updated to ${ip}`,
+          ip,
+          domain: recordName,
+        };
+      } else {
+        const createUrl = `https://api.cloudflare.com/client/v4/zones/${zoneId}/dns_records`;
+        
+        const createResponse = await fetch(createUrl, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${apiToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            type: 'A',
+            name: recordName,
+            content: ip,
+            ttl: 1,
+            proxied: false,
+          }),
+        });
+
+        if (!createResponse.ok) {
+          const errorText = await createResponse.text();
+          throw new Error(`Cloudflare API error (create): ${createResponse.status} - ${errorText}`);
+        }
+
+        return {
+          success: true,
+          message: `DNS record for ${recordName} created with IP ${ip}`,
+          ip,
+          domain: recordName,
+        };
+      }
+    } catch (error) {
+      console.error('Failed to update DNS:', error);
+      throw new Error(`Failed to update DNS: ${error.message}`);
+    }
   }
 
   async getStatus() {

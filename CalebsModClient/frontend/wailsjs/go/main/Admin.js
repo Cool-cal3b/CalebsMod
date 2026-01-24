@@ -33,3 +33,7 @@ export function StartServer() {
 export function StopServer() {
   return window['go']['main']['Admin']['StopServer']();
 }
+
+export function UpdateDns() {
+  return window['go']['main']['Admin']['UpdateDns']();
+}
