@@ -126,7 +126,7 @@ Write-Host ""
 
 Write-Host "Uploading to S3..." -ForegroundColor Yellow
 $s3Key = "client-releases/$zipFileName"
-$s3Bucket = "calebsmod-builds"
+$s3Bucket = "calebsmod-downloads"
 
 Write-Host "Bucket: $s3Bucket" -ForegroundColor Gray
 Write-Host "Key: $s3Key" -ForegroundColor Gray
