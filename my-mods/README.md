@@ -1,38 +1,20 @@
 # Custom Mods
 
-This folder contains all custom mods for CalebsMod.
+This folder contains custom Forge mods for CalebsMod (currently unused - using PrismLauncher's built-in server joining instead).
 
 ## Building Mods
-
-Build all mods at once:
 
 ```powershell
 .\build-all-mods.ps1
 ```
 
-Or build individual mods:
+## Note
 
-```powershell
-cd autoconnect-mod
-.\gradlew.bat build
-```
+The autoconnect-mod is no longer needed since PrismLauncher has a built-in `--server` flag that directly joins servers on launch. Your client mods should go in the PrismLauncher instance folder instead.
 
-## Output
+## Adding Client Mods
 
-Compiled JARs are in each mod's `build/libs/` folder.
+Mods are managed by the CalebsModClient app and placed in:
+- `%LOCALAPPDATA%\CalebsMod\PrismLauncher\instances\CalebsMod\.minecraft\mods\`
 
-## Distribution
-
-### Client-Side Mods
-- **autoconnect-mod** - Auto-connects friends to your server
-- Copy to your modpack that friends download
-
-### Server-Side Mods
-- None currently
-- If you add server mods, copy to `calebs-mod-server/minecraft-data/mods/`
-
-## Adding New Mods
-
-1. Create a new Forge mod project in this folder
-2. Make sure it has `build.gradle` and `gradlew.bat`
-3. Run `.\build-all-mods.ps1` to build everything
+The "Sync Mods" button in the launcher handles this automatically.

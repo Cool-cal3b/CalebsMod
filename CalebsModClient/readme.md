@@ -5,9 +5,9 @@ Desktop launcher (Wails + React) that auto-installs PrismLauncher, manages mods,
 ## Features
 
 - **One-Click PrismLauncher Install**: Downloads portable PrismLauncher from GitHub
-- **Isolated Instance**: Creates separate "CalebsMod" instance with Forge 1.20.1
-- **Auto-Connect**: Fetches server IP and configures auto-connect mod
-- **Mod Sync**: Downloads modpack from server (planned)
+- **Isolated Instance**: Creates "CalebsMod" instance with Forge 1.20.1
+- **Auto-Join Server**: Uses PrismLauncher's `--server` flag to connect directly
+- **Mod Sync**: Downloads and installs mods to instance (planned)
 - **Admin Panel**: Server management for admins
 
 ## Development
@@ -26,29 +26,18 @@ Output: `build/bin/CalebsModClient.exe`
 
 ## How It Works
 
-1. Checks if PrismLauncher is installed
-2. User clicks "Install Launcher" if needed (downloads portable version)
-3. User clicks "Launch Minecraft"
-4. Launcher creates "CalebsMod" instance if doesn't exist
-5. Fetches server IP from API
-6. Writes auto-connect config to instance `.minecraft/config/`
-7. Launches PrismLauncher with `-l CalebsMod` to start the instance
-8. Auto-connect mod connects to server
+1. User clicks "Install Launcher" (first time or to reinstall)
+2. Downloads PrismLauncher portable to `%LOCALAPPDATA%\CalebsMod\PrismLauncher`
+3. User logs into Microsoft account in PrismLauncher (one-time)
+4. User clicks "Launch Minecraft"
+5. App creates "CalebsMod" instance (Minecraft 1.20.1 + Forge 47.3.0)
+6. App syncs mods to instance `.minecraft/mods/` folder
+7. Fetches server IP from API
+8. Launches: `prismlauncher.exe -d <path> -l CalebsMod -s <ip:port>`
+9. Minecraft opens and joins server automatically
 
-## PrismLauncher Location
+## Instance Location
 
-- **Windows**: `%LOCALAPPDATA%\CalebsMod\PrismLauncher`
-- **Mac**: `~/Library/Application Support/CalebsMod/PrismLauncher`
-- **Linux**: `~/.local/share/CalebsMod/PrismLauncher`
+`%LOCALAPPDATA%\CalebsMod\PrismLauncher\instances\CalebsMod\.minecraft\`
 
-## Instance Structure
-
-```
-PrismLauncher/instances/CalebsMod/
-├── instance.cfg          # Instance config
-├── mmc-pack.json         # Minecraft 1.20.1 + Forge 47.3.0
-└── .minecraft/
-    ├── mods/             # Your mods go here
-    └── config/
-        └── autoconnect.json  # Created by launcher
-```
+This is isolated from the user's regular Minecraft installation.

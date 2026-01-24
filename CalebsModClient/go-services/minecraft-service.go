@@ -42,16 +42,11 @@ func StartMinecraftClient() (bool, error) {
 		return false, fmt.Errorf("failed to get server address: %w", err)
 	}
 
-	instancePath, err := ensureCalebsModInstance(prismPath)
-	if err != nil {
+	if err := ensureCalebsModInstance(prismPath); err != nil {
 		return false, fmt.Errorf("failed to ensure CalebsMod instance: %w", err)
 	}
 
-	if err := writeAutoConnectConfig(instancePath, serverAddress); err != nil {
-		return false, fmt.Errorf("failed to write config: %w", err)
-	}
-
-	if err := launchPrismInstance(prismPath, INSTANCE_NAME); err != nil {
+	if err := launchPrismInstance(prismPath, INSTANCE_NAME, serverAddress); err != nil {
 		return false, fmt.Errorf("failed to launch Minecraft: %w", err)
 	}
 
@@ -273,16 +268,16 @@ func unzip(src, dest string) error {
 	return nil
 }
 
-func ensureCalebsModInstance(prismPath string) (string, error) {
+func ensureCalebsModInstance(prismPath string) error {
 	instancesPath := filepath.Join(prismPath, "instances", INSTANCE_NAME)
 	
 	if _, err := os.Stat(instancesPath); os.IsNotExist(err) {
 		if err := createCalebsModInstance(prismPath); err != nil {
-			return "", err
+			return err
 		}
 	}
 
-	return filepath.Join(instancesPath, ".minecraft"), nil
+	return syncModsToInstance(instancesPath)
 }
 
 func createCalebsModInstance(prismPath string) error {
@@ -324,13 +319,29 @@ notes=CalebsMod Private Modpack
 	return nil
 }
 
-func launchPrismInstance(prismPath, instanceName string) error {
+func launchPrismInstance(prismPath, instanceName, serverAddress string) error {
 	prismExe := filepath.Join(prismPath, "prismlauncher.exe")
 	
-	cmd := exec.Command(prismExe, "-l", instanceName)
+	cmd := exec.Command(prismExe, "-d", prismPath, "-l", instanceName, "-s", serverAddress)
 	
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("failed to launch PrismLauncher: %w", err)
+	}
+
+	return nil
+}
+
+func syncModsToInstance(instancePath string) error {
+	minecraftPath := filepath.Join(instancePath, ".minecraft")
+	modsPath := filepath.Join(minecraftPath, "mods")
+	configPath := filepath.Join(minecraftPath, "config")
+
+	if err := os.MkdirAll(modsPath, 0755); err != nil {
+		return fmt.Errorf("failed to create mods directory: %w", err)
+	}
+
+	if err := os.MkdirAll(configPath, 0755); err != nil {
+		return fmt.Errorf("failed to create config directory: %w", err)
 	}
 
 	return nil
@@ -365,28 +376,4 @@ func getServerAddress() (string, error) {
 	}
 
 	return fmt.Sprintf("%s:%s", ipAndPortResponseData.Ip, ipAndPortResponseData.Port), nil
-}
-
-func writeAutoConnectConfig(instanceMinecraftPath string, serverAddress string) error {
-	configDir := filepath.Join(instanceMinecraftPath, "config")
-	if err := os.MkdirAll(configDir, 0755); err != nil {
-		return fmt.Errorf("failed to create config directory: %w", err)
-	}
-
-	config := AutoConnectConfig{
-		Enabled:       true,
-		ServerAddress: serverAddress,
-	}
-
-	configData, err := json.MarshalIndent(config, "", "  ")
-	if err != nil {
-		return fmt.Errorf("failed to marshal config: %w", err)
-	}
-
-	configPath := filepath.Join(configDir, "autoconnect.json")
-	if err := os.WriteFile(configPath, configData, 0644); err != nil {
-		return fmt.Errorf("failed to write config file: %w", err)
-	}
-
-	return nil
 }
