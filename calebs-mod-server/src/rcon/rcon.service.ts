@@ -6,6 +6,9 @@ import { Rcon } from 'rcon-client';
 export class RconService implements OnModuleInit, OnModuleDestroy {
   private rcon: Rcon | null = null;
   private connected = false;
+  private connecting = false;
+  private lastConnectionAttempt = 0;
+  private readonly CONNECTION_RETRY_DELAY = 5000;
 
   constructor(private configService: ConfigService) {}
 
@@ -18,7 +21,17 @@ export class RconService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async connect() {
+    const now = Date.now();
+    if (this.connecting || (now - this.lastConnectionAttempt) < this.CONNECTION_RETRY_DELAY) {
+      return;
+    }
+
+    this.connecting = true;
+    this.lastConnectionAttempt = now;
+
     try {
+      await this.forceDisconnect();
+
       const host = this.configService.get<string>('RCON_HOST') || 'localhost';
       const port = this.configService.get<number>('RCON_PORT') || 25575;
       const password = this.configService.get<string>('RCON_PASSWORD') || '';
@@ -27,19 +40,48 @@ export class RconService implements OnModuleInit, OnModuleDestroy {
         host,
         port,
         password,
+        timeout: 5000,
+      });
+
+      this.rcon.on('error', () => {
+        this.connected = false;
+      });
+
+      this.rcon.on('end', () => {
+        this.connected = false;
       });
 
       this.connected = true;
     } catch (error) {
-      console.error('Failed to connect to RCON:', error.message);
       this.connected = false;
+      this.rcon = null;
+    } finally {
+      this.connecting = false;
     }
   }
 
+  private forceDisconnect() {
+    if (this.rcon) {
+      try {
+        const socket = (this.rcon as any).socket;
+        if (socket) {
+          socket.removeAllListeners?.();
+          socket.destroy();
+        }
+      } catch (error) {
+      }
+      this.rcon = null;
+    }
+    this.connected = false;
+  }
+
   private async disconnect() {
-    if (this.rcon && this.connected) {
-      await this.rcon.end();
-      this.connected = false;
+    if (this.rcon) {
+      try {
+        await this.rcon.end();
+      } catch (error) {
+      }
+      this.forceDisconnect();
     }
   }
 
@@ -56,7 +98,7 @@ export class RconService implements OnModuleInit, OnModuleDestroy {
       const response = await this.rcon.send(command);
       return response;
     } catch (error) {
-      this.connected = false;
+      this.forceDisconnect();
       throw error;
     }
   }

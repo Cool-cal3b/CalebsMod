@@ -164,20 +164,30 @@ export class ServerService {
 
   async getStatus() {
     const dockerStatus = await this.dockerService.getServerStatus();
-    const rconConnected = this.rconService.isConnected();
+    
+    let players: { online: number; max: number; players: string[] } = {
+      online: 0,
+      max: 20,
+      players: [],
+    };
 
-    let players: { online: number; max: number; players: string[] } | null = null;
-    if (dockerStatus.running && rconConnected) {
+    let rconConnected = false;
+
+    if (dockerStatus.running) {
       try {
         const playerList = await this.rconService.listPlayers();
-        players = this.parsePlayerList(playerList);
+        const parsedPlayers = this.parsePlayerList(playerList);
+        if (parsedPlayers) {
+          players = parsedPlayers;
+        }
+        rconConnected = true;
       } catch (error) {
-        console.error('Error getting player list:', error);
+        rconConnected = false;
       }
     }
 
     return {
-      ...dockerStatus,
+      dockerStatus,
       rconConnected,
       players,
     };
