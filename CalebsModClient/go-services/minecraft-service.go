@@ -64,7 +64,8 @@ func CheckForgeInstalled() (bool, error) {
 		return false, nil
 	}
 
-	if _, err := os.Stat(prismPath); os.IsNotExist(err) {
+	prismExe := filepath.Join(prismPath, "prismlauncher.exe")
+	if _, err := os.Stat(prismExe); os.IsNotExist(err) {
 		return false, nil
 	}
 
@@ -72,7 +73,18 @@ func CheckForgeInstalled() (bool, error) {
 }
 
 func InstallForge() (bool, error) {
-	_, err := ensurePrismLauncherInstalled()
+	prismPath, err := getPrismLauncherPath()
+	if err != nil {
+		return false, fmt.Errorf("failed to get PrismLauncher path: %w", err)
+	}
+
+	if _, err := os.Stat(prismPath); err == nil {
+		if err := os.RemoveAll(prismPath); err != nil {
+			return false, fmt.Errorf("failed to remove existing PrismLauncher: %w", err)
+		}
+	}
+
+	_, err = ensurePrismLauncherInstalled()
 	if err != nil {
 		return false, fmt.Errorf("failed to install PrismLauncher: %w", err)
 	}
@@ -131,13 +143,24 @@ func downloadAndInstallPrism(destPath string) error {
 	var downloadURL string
 	var assetName string
 
+	arch := runtime.GOARCH
+	
 	for _, asset := range release.Assets {
 		name := asset.Name
 		if runtime.GOOS == "windows" && filepath.Ext(name) == ".zip" {
 			lowerName := strings.ToLower(name)
-			if strings.Contains(lowerName, "windows") && 
-			   strings.Contains(lowerName, "portable") &&
-			   !strings.Contains(lowerName, "legacy") {
+			
+			if !strings.Contains(lowerName, "windows") || 
+			   !strings.Contains(lowerName, "portable") ||
+			   strings.Contains(lowerName, "setup") {
+				continue
+			}
+
+			if arch == "amd64" && strings.Contains(lowerName, "msvc") && !strings.Contains(lowerName, "arm64") {
+				downloadURL = asset.BrowserDownloadURL
+				assetName = asset.Name
+				break
+			} else if arch == "arm64" && strings.Contains(lowerName, "arm64") {
 				downloadURL = asset.BrowserDownloadURL
 				assetName = asset.Name
 				break
@@ -146,14 +169,12 @@ func downloadAndInstallPrism(destPath string) error {
 	}
 
 	if downloadURL == "" {
-		return fmt.Errorf("could not find Windows portable release. Available assets: %v", 
-			func() []string {
-				names := make([]string, len(release.Assets))
-				for i, a := range release.Assets {
-					names[i] = a.Name
-				}
-				return names
-			}())
+		availableAssets := make([]string, len(release.Assets))
+		for i, a := range release.Assets {
+			availableAssets[i] = a.Name
+		}
+		return fmt.Errorf("could not find compatible Windows portable release for %s/%s. Available assets: %v", 
+			runtime.GOOS, arch, availableAssets)
 	}
 
 	tempDir := os.TempDir()

@@ -5,7 +5,7 @@ import { StartMinecraftClient, CheckForgeInstalled, InstallForge } from '../wail
 import { useState, useEffect } from 'react';
 
 function App() {
-	const [forgeIsInstalled, setForgeIsInstalled] = useState(false);
+	const [launcherInstalled, setLauncherInstalled] = useState(false);
 	const [isInstalling, setIsInstalling] = useState(false);
 
 	const syncMods = () => {
@@ -27,7 +27,7 @@ function App() {
 		try {
 			const success = await InstallForge();
 			if (success) {
-				setForgeIsInstalled(true);
+				setLauncherInstalled(true);
 				alert("PrismLauncher installed successfully!");
 			} else {
 				alert("Failed to install PrismLauncher. Please install manually.");
@@ -41,15 +41,15 @@ function App() {
 	}
 
 	useEffect(() => {
-		const checkForgeInstalled = async () => {
+		const checkLauncher = async () => {
 			try {
 				const installed = await CheckForgeInstalled();
-				setForgeIsInstalled(installed);
+				setLauncherInstalled(installed);
 			} catch (error) {
-				console.error("Failed to check Forge installation:", error);
+				console.error("Failed to check launcher installation:", error);
 			}
 		}
-		checkForgeInstalled();
+		checkLauncher();
 	}, []);
 
 	return (
@@ -62,17 +62,14 @@ function App() {
 		   <div className="status-bar">
 			   <span className="status-item">Server: <span className="status-online">Online</span></span>
 			   <span className="status-item">Mods: <span className="status-synced">Synced</span></span>
-			   <span className="status-item">Launcher: <span className={forgeIsInstalled ? "status-synced" : "status-offline"}>{forgeIsInstalled ? "Ready" : "Not Installed"}</span></span>
 		   </div>
 
 		   <div className="options">
 				<button className="mc-button large" onClick={syncMods}>Sync Mods</button>
-				<button className="mc-button large green" onClick={connectToServer} disabled={!forgeIsInstalled}>Launch Minecraft</button>
-				{!forgeIsInstalled && (
-					<button className="mc-button large" onClick={installForge} disabled={isInstalling}>
-						{isInstalling ? "Installing..." : "Install Launcher"}
-					</button>
-				)}
+				<button className="mc-button large green" onClick={connectToServer} disabled={!launcherInstalled}>Launch Minecraft</button>
+				<button className="mc-button large" onClick={installForge} disabled={isInstalling}>
+					{isInstalling ? "Installing..." : (launcherInstalled ? "Reinstall Launcher" : "Install Launcher")}
+				</button>
 				<Link className="mc-button admin-link" to="/admin">Admin Panel</Link>	
 		   </div>
         </div>
