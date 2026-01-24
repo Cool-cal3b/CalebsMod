@@ -14,6 +14,7 @@ var assets embed.FS
 func main() {
 	app := NewApp()
 	admin := NewAdmin()
+	minecraft := NewMinecraftService()
 
 	err := wails.Run(&options.App{
 		Title:  "CalebsModClient",
@@ -27,6 +28,7 @@ func main() {
 		Bind: []interface{}{
 			app,
 			admin,
+			minecraft,
 		},
 	})
 

@@ -105,20 +105,25 @@ export class DockerService implements OnModuleInit {
   }
 
   async startServer(): Promise<{ status: ServerStatus; message: string }> {
-    let container: Dockerode.Container | null = await this.getContainer();
+    console.log('Starting server');
+    try {
+      let container: Dockerode.Container | null = await this.getContainer();
 
-    if (!container) {
-      container = await this.createContainer();
+      if (!container) {
+        container = await this.createContainer();
+      }
+
+      const info = await container.inspect();
+
+      if (!info.State.Running) {
+        await container.start();
+        return { status: ServerStatus.STARTED, message: 'Minecraft server started' };
+      }
+
+      return { status: ServerStatus.ALREADY_RUNNING, message: 'Server is already running' };
+    } catch (error) {
+      return { status: ServerStatus.ERROR, message: (error as Error).message };
     }
-
-    const info = await container.inspect();
-
-    if (!info.State.Running) {
-      await container.start();
-      return { status: ServerStatus.STARTED, message: 'Minecraft server started' };
-    }
-
-    return { status: ServerStatus.ALREADY_RUNNING, message: 'Server is already running' };
   }
 
   async stopServer() {

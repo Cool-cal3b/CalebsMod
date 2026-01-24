@@ -25,9 +25,15 @@ export class ServerController {
     return await this.serverService.getLogs(tailCount);
   }
 
+  @Get('ip-and-port')
+  async getIpAndPort() {
+    return await this.serverService.getIpAndPort();
+  }
+
   @Post('start')
   @UseGuards(JwtAuthGuard)
   async startServer() {
+    console.log('Starting server');
     return await this.serverService.startServer();
   }
 

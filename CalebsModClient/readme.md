@@ -1,56 +1,54 @@
 # CalebsModClient
 
-Desktop launcher built with **Wails + React** that keeps a user's Minecraft client in sync with the current server modpack, then launches Minecraft.
+Desktop launcher (Wails + React) that auto-installs PrismLauncher, manages mods, and launches Minecraft.
 
-## Goals
-- Friends do **not** manually install or update mods
-- Client automatically:
-  - checks modpack version
-  - downloads missing or updated mods
-  - removes mods no longer in the pack
-  - syncs config files
-- Launches Minecraft using the correct loader and version
-- Optionally pre-seeds the server list with `mc.calebwash.com`
+## Features
 
-## High-level flow
-1. Launcher starts
-2. Fetches manifest from the backend (CalebsModServer)
-3. Compares manifest to local `.minecraft` state
-4. Applies changes:
-   - `mods/` folder
-   - `config/` folder
-5. Launches Minecraft
-
-## Requirements
-- Go (for Wails)
-- Node.js (for React tooling)
-- Minecraft Java Edition
-- Java runtime (system-installed or bundled later)
+- **One-Click PrismLauncher Install**: Downloads portable PrismLauncher from GitHub
+- **Isolated Instance**: Creates separate "CalebsMod" instance with Forge 1.20.1
+- **Auto-Connect**: Fetches server IP and configures auto-connect mod
+- **Mod Sync**: Downloads modpack from server (planned)
+- **Admin Panel**: Server management for admins
 
 ## Development
-```
+
+```bash
 wails dev
 ```
 
 ## Build
-```
+
+```bash
 wails build
 ```
 
-## Configuration
-Currently expected values (hardcoded or simple config):
-- Backend API base URL: `http://localhost:3000` (dev)
-- Minecraft server address: `mc.calebwash.com`
+Output: `build/bin/CalebsModClient.exe`
 
-## Planned features
-- Download progress UI (per-mod + total)
-- SHA1 / SHA256 validation from manifest
-- Detect active Minecraft profile (username / UUID)
-- Access request flow to backend for whitelist approval
-- Automatic server entry in `servers.dat`
-- Optional auto-join via a small client-side mod
+## How It Works
 
-## Notes
-- Minecraft must be restarted to apply mod changes
-- Designed for private servers using whitelist + online-mode
+1. Checks if PrismLauncher is installed
+2. User clicks "Install Launcher" if needed (downloads portable version)
+3. User clicks "Launch Minecraft"
+4. Launcher creates "CalebsMod" instance if doesn't exist
+5. Fetches server IP from API
+6. Writes auto-connect config to instance `.minecraft/config/`
+7. Launches PrismLauncher with `-l CalebsMod` to start the instance
+8. Auto-connect mod connects to server
 
+## PrismLauncher Location
+
+- **Windows**: `%LOCALAPPDATA%\CalebsMod\PrismLauncher`
+- **Mac**: `~/Library/Application Support/CalebsMod/PrismLauncher`
+- **Linux**: `~/.local/share/CalebsMod/PrismLauncher`
+
+## Instance Structure
+
+```
+PrismLauncher/instances/CalebsMod/
+├── instance.cfg          # Instance config
+├── mmc-pack.json         # Minecraft 1.20.1 + Forge 47.3.0
+└── .minecraft/
+    ├── mods/             # Your mods go here
+    └── config/
+        └── autoconnect.json  # Created by launcher
+```

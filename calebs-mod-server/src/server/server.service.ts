@@ -38,6 +38,28 @@ export class ServerService {
     return await this.dockerService.restartServer();
   }
 
+  async getIpAndPort() {
+    const container = await this.dockerService.getContainer();
+    
+    let publicIp: string;
+    try {
+      const response = await fetch('https://api.ipify.org?format=json');
+      const data = await response.json();
+      publicIp = data.ip;
+    } catch (error) {
+      console.error('Failed to get public IP:', error);
+      throw new Error('Unable to retrieve public IP address');
+    }
+
+    const port = container?.NetworkSettings.Ports['25565/tcp']?.[0]?.HostPort || '25565';
+    
+    return {
+      ip: publicIp,
+      port: port,
+      serverAddress: `${publicIp}:${port}`,
+    };
+  }
+
   async getStatus() {
     const dockerStatus = await this.dockerService.getServerStatus();
     const rconConnected = this.rconService.isConnected();
