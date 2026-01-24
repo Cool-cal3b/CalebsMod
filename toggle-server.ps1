@@ -56,13 +56,13 @@ function Get-ServerPID {
 }
 
 function Test-ServerRunning {
-    $pid = Get-ServerPID
-    if ($null -eq $pid) {
+    $serverPid = Get-ServerPID
+    if ($null -eq $serverPid) {
         return $false
     }
     
     try {
-        $process = Get-Process -Id $pid -ErrorAction SilentlyContinue
+        $process = Get-Process -Id $serverPid -ErrorAction SilentlyContinue
         if ($null -eq $process) {
             Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
             return $false
@@ -97,7 +97,7 @@ function Show-Status {
     Write-Host ""
     
     $isRunning = Test-ServerRunning
-    $pid = Get-ServerPID
+    $serverPid = Get-ServerPID
     
     if (-not $isRunning) {
         Write-Host "Status: " -NoNewline
@@ -116,10 +116,10 @@ function Show-Status {
     
     Write-Host "Status: " -NoNewline
     Write-Host "RUNNING" -ForegroundColor Green
-    Write-Host "PID: $pid" -ForegroundColor Gray
+    Write-Host "PID: $serverPid" -ForegroundColor Gray
     Write-Host ""
     
-    $process = Get-Process -Id $pid -ErrorAction SilentlyContinue
+    $process = Get-Process -Id $serverPid -ErrorAction SilentlyContinue
     if ($process) {
         $uptime = (Get-Date) - $process.StartTime
         $cpu = [math]::Round($process.CPU, 2)
@@ -178,11 +178,11 @@ function Stop-Server {
         return
     }
     
-    $pid = Get-ServerPID
-    Write-Host "Stopping server (PID: $pid)..." -ForegroundColor Yellow
+    $serverPid = Get-ServerPID
+    Write-Host "Stopping server (PID: $serverPid)..." -ForegroundColor Yellow
     
     try {
-        Stop-Process -Id $pid -Force -ErrorAction Stop
+        Stop-Process -Id $serverPid -Force -ErrorAction Stop
         Start-Sleep -Seconds 1
         
         $stillRunning = Test-ServerRunning
@@ -207,8 +207,8 @@ function Start-Server {
     
     $isRunning = Test-ServerRunning
     if ($isRunning) {
-        $pid = Get-ServerPID
-        Write-Host "Server is already running (PID: $pid)" -ForegroundColor Yellow
+        $serverPid = Get-ServerPID
+        Write-Host "Server is already running (PID: $serverPid)" -ForegroundColor Yellow
         Write-Host "Use -k to stop it first" -ForegroundColor Yellow
         exit 0
     }
