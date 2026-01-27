@@ -1,7 +1,7 @@
 import './App.css';
 import logo from './assets/images/CalebsModLogo.png';
 import { Link } from 'react-router-dom';
-import { StartMinecraftClient, CheckForgeInstalled, InstallForge } from '../wailsjs/go/main/MinecraftService';
+import { StartMinecraftClient, CheckLauncherInstalled, DeleteLauncher } from '../wailsjs/go/main/MinecraftService';
 import { useState, useEffect } from 'react';
 
 function App() {
@@ -22,19 +22,19 @@ function App() {
 		}
 	}
 
-	const installForge = async () => {
+	const deleteLauncher = async () => {
 		setIsInstalling(true);
 		try {
-			const success = await InstallForge();
+			const success = await DeleteLauncher();
 			if (success) {
-				setLauncherInstalled(true);
-				alert("PrismLauncher installed successfully!");
+				setLauncherInstalled(false);
+				alert("PrismLauncher deleted successfully!");
 			} else {
-				alert("Failed to install PrismLauncher. Please install manually.");
+				alert("Failed to delete PrismLauncher. Please delete manually.");
 			}
 		} catch (error) {
-			console.error("Failed to install PrismLauncher:", error);
-			alert("Failed to install PrismLauncher: " + error);
+			console.error("Failed to delete PrismLauncher:", error);
+			alert("Failed to delete PrismLauncher: " + error);
 		} finally {
 			setIsInstalling(false);
 		}
@@ -43,7 +43,7 @@ function App() {
 	useEffect(() => {
 		const checkLauncher = async () => {
 			try {
-				const installed = await CheckForgeInstalled();
+				const installed = await CheckLauncherInstalled();
 				setLauncherInstalled(installed);
 			} catch (error) {
 				console.error("Failed to check launcher installation:", error);
@@ -65,11 +65,13 @@ function App() {
 		   </div>
 
 		   <div className="options">
-				<button className="mc-button large" onClick={syncMods}>Sync Mods (Coming Soon)</button>
+
+				{launcherInstalled && <button className="mc-button large" onClick={syncMods}>Sync Mods (Coming Soon)</button>}
 				<button className="mc-button large green" onClick={connectToServer} disabled={!launcherInstalled}>Launch Minecraft</button>
-				<button className="mc-button large" onClick={installForge} disabled={isInstalling}>
-					{isInstalling ? "Installing..." : (launcherInstalled ? "Reinstall Launcher" : "Install Launcher")}
-				</button>
+				{launcherInstalled
+					? <button className="mc-button large" onClick={deleteLauncher} disabled={isInstalling}>Delete Launcher</button>
+					: <Link className="mc-button large" to="/install-launcher">Install Launcher</Link>
+				}
 				<Link className="mc-button admin-link" to="/admin">Admin Panel</Link>	
 		   </div>
         </div>

@@ -604,3 +604,98 @@ h2 {
         transform: translateY(0);
     }
 }
+
+.install-launcher {
+    padding: 20px;
+    max-width: 900px;
+    margin: 0 auto;
+}
+
+.install-launcher .back-button {
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: white;
+    padding: 8px 16px;
+    cursor: pointer;
+    border-radius: 4px;
+    margin-bottom: 20px;
+}
+
+.install-launcher .back-button:hover {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+.install-launcher h1 {
+    margin-top: 0;
+    color: #4CAF50;
+}
+
+.install-launcher .subtitle {
+    font-size: 1.1em;
+    margin-bottom: 30px;
+    opacity: 0.9;
+}
+
+.steps-container {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.step-bubble {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    padding: 20px;
+}
+
+.step-bubble h2 {
+    margin-top: 0;
+    color: #4CAF50;
+    font-size: 1.3em;
+}
+
+.step-bubble p {
+    margin: 10px 0;
+    line-height: 1.6;
+}
+
+.step-bubble .success {
+    color: #4CAF50;
+    font-weight: bold;
+    padding: 10px;
+    background: rgba(76, 175, 80, 0.1);
+    border-radius: 4px;
+    margin-top: 10px;
+}
+
+.step-bubble .downloading {
+    color: #2196F3;
+    font-weight: bold;
+    padding: 10px;
+    background: rgba(33, 150, 243, 0.1);
+    border-radius: 4px;
+    margin-top: 10px;
+}
+
+.instruction-image {
+    max-width: 100%;
+    border: 2px solid rgba(255, 255, 255, 0.2);
+    border-radius: 4px;
+    margin-top: 15px;
+}
+
+.server-info {
+    background: rgba(0, 0, 0, 0.3);
+    padding: 10px;
+    border-radius: 4px;
+    margin-top: 10px;
+}
+
+.server-info code {
+    background: rgba(255, 255, 255, 0.1);
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-family: 'Courier New', monospace;
+    color: #4CAF50;
+}

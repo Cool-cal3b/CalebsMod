@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 )
 
 type AutoConnectConfig struct {
@@ -65,7 +66,7 @@ func StartMinecraftClient() (bool, error) {
 	return true, nil
 }
 
-func CheckForgeInstalled() (bool, error) {
+func CheckLauncherInstalled() (bool, error) {
 	prismPath, err := getPrismLauncherPath()
 	if err != nil {
 		return false, nil
@@ -79,7 +80,47 @@ func CheckForgeInstalled() (bool, error) {
 	return true, nil
 }
 
-func InstallForge() (bool, error) {
+func DeleteLauncher() (bool, error) {
+	prismPath, err := getPrismLauncherPath()
+	if err != nil {
+		return false, fmt.Errorf("failed to get PrismLauncher path: %w", err)
+	}
+
+	if _, err := os.Stat(prismPath); os.IsNotExist(err) {
+		return true, nil
+	}
+
+	if runtime.GOOS == "windows" {
+		if err := killProcessByName("prismlauncher.exe"); err != nil {
+			fmt.Printf("Warning: failed to kill PrismLauncher process: %v\n", err)
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+
+	if err := os.RemoveAll(prismPath); err != nil {
+		return false, fmt.Errorf("failed to remove PrismLauncher directory: %w. Make sure PrismLauncher is closed", err)
+	}
+
+	return true, nil
+}
+
+func killProcessByName(processName string) error {
+	if runtime.GOOS != "windows" {
+		return fmt.Errorf("only supported on Windows")
+	}
+
+	cmd := exec.Command("taskkill", "/F", "/IM", processName)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		if strings.Contains(string(output), "not found") {
+			return nil
+		}
+		return fmt.Errorf("taskkill failed: %w, output: %s", err, string(output))
+	}
+	return nil
+}
+
+func InstallLauncher() (bool, error) {
 	prismPath, err := getPrismLauncherPath()
 	if err != nil {
 		return false, fmt.Errorf("failed to get PrismLauncher path: %w", err)
@@ -151,15 +192,15 @@ func downloadAndInstallPrism(destPath string) error {
 	var assetName string
 
 	arch := runtime.GOARCH
-	
+
 	for _, asset := range release.Assets {
 		name := asset.Name
 		if runtime.GOOS == "windows" && filepath.Ext(name) == ".zip" {
 			lowerName := strings.ToLower(name)
-			
-			if !strings.Contains(lowerName, "windows") || 
-			   !strings.Contains(lowerName, "portable") ||
-			   strings.Contains(lowerName, "setup") {
+
+			if !strings.Contains(lowerName, "windows") ||
+				!strings.Contains(lowerName, "portable") ||
+				strings.Contains(lowerName, "setup") {
 				continue
 			}
 
@@ -180,7 +221,7 @@ func downloadAndInstallPrism(destPath string) error {
 		for i, a := range release.Assets {
 			availableAssets[i] = a.Name
 		}
-		return fmt.Errorf("could not find compatible Windows portable release for %s/%s. Available assets: %v", 
+		return fmt.Errorf("could not find compatible Windows portable release for %s/%s. Available assets: %v",
 			runtime.GOOS, arch, availableAssets)
 	}
 
@@ -283,11 +324,11 @@ func unzip(src, dest string) error {
 func checkInstanceExists(prismPath string) (bool, error) {
 	instancesPath := filepath.Join(prismPath, "instances", INSTANCE_NAME)
 	instanceCfgPath := filepath.Join(instancesPath, "instance.cfg")
-	
+
 	if _, err := os.Stat(instanceCfgPath); os.IsNotExist(err) {
 		return false, nil
 	}
-	
+
 	return true, nil
 }
 
@@ -298,9 +339,9 @@ func createInstanceViaPrismUI(prismPath string) error {
 
 	modpackPath := filepath.Join(prismPath, "CalebsMod.zip")
 	prismExe := filepath.Join(prismPath, "prismlauncher.exe")
-	
+
 	cmd := exec.Command(prismExe, "-d", prismPath, "-I", modpackPath)
-	
+
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("failed to launch PrismLauncher: %w", err)
 	}
@@ -310,7 +351,7 @@ func createInstanceViaPrismUI(prismPath string) error {
 
 func createModpackZip(prismPath string) error {
 	modpackPath := filepath.Join(prismPath, "CalebsMod.zip")
-	
+
 	zipFile, err := os.Create(modpackPath)
 	if err != nil {
 		return err
@@ -371,9 +412,9 @@ func addFileToZip(zipWriter *zip.Writer, filename string, data []byte) error {
 
 func launchPrismInstance(prismPath, instanceName, serverAddress string) error {
 	prismExe := filepath.Join(prismPath, "prismlauncher.exe")
-	
+
 	cmd := exec.Command(prismExe, "-d", prismPath, "-l", instanceName, "-s", serverAddress)
-	
+
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("failed to launch PrismLauncher: %w", err)
 	}

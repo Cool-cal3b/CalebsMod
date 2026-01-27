@@ -1,7 +1,7 @@
 package main
 
 import (
-	"CalebsModClient/go-services"
+	go_services "CalebsModClient/go-services"
 	"context"
 )
 
@@ -21,10 +21,14 @@ func (m *MinecraftService) StartMinecraftClient() (bool, error) {
 	return go_services.StartMinecraftClient()
 }
 
-func (m *MinecraftService) CheckForgeInstalled() (bool, error) {
-	return go_services.CheckForgeInstalled()
+func (m *MinecraftService) CheckLauncherInstalled() (bool, error) {
+	return go_services.CheckLauncherInstalled()
 }
 
-func (m *MinecraftService) InstallForge() (bool, error) {
-	return go_services.InstallForge()
+func (m *MinecraftService) InstallLauncher() (bool, error) {
+	return go_services.InstallLauncher()
+}
+
+func (m *MinecraftService) DeleteLauncher() (bool, error) {
+	return go_services.DeleteLauncher()
 }
