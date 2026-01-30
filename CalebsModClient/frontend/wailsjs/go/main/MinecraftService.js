@@ -17,3 +17,7 @@ export function InstallLauncher() {
 export function StartMinecraftClient() {
   return window['go']['main']['MinecraftService']['StartMinecraftClient']();
 }
+
+export function SyncMods() {
+  return window['go']['main']['MinecraftService']['SyncMods']();
+}

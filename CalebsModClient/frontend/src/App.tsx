@@ -1,15 +1,31 @@
 import './App.css';
 import logo from './assets/images/CalebsModLogo.png';
 import { Link } from 'react-router-dom';
-import { StartMinecraftClient, CheckLauncherInstalled, DeleteLauncher } from '../wailsjs/go/main/MinecraftService';
+import { StartMinecraftClient, CheckLauncherInstalled, DeleteLauncher, SyncMods } from '../wailsjs/go/main/MinecraftService';
 import { useState, useEffect } from 'react';
 
 function App() {
 	const [launcherInstalled, setLauncherInstalled] = useState(false);
 	const [isInstalling, setIsInstalling] = useState(false);
+	const [isSyncing, setIsSyncing] = useState(false);
 
-	const syncMods = () => {
-		console.log("Syncing mods");
+	const syncMods = async () => {
+		if (isSyncing) return;
+
+		setIsSyncing(true);
+		try {
+			const success = await SyncMods();
+			if (success) {
+				alert("Server added to Minecraft successfully!");
+			} else {
+				alert("Failed to add server. Please check the launcher is installed.");
+			}
+		} catch (error) {
+			console.error("Failed to sync mods:", error);
+			alert("Failed to sync: " + error);
+		} finally {
+			setIsSyncing(false);
+		}
 	}
 
 	const connectToServer = async () => {
@@ -66,7 +82,11 @@ function App() {
 
 		   <div className="options">
 
-				{launcherInstalled && <button className="mc-button large" onClick={syncMods}>Sync Mods (Coming Soon)</button>}
+				{launcherInstalled && (
+					<button className="mc-button large" onClick={syncMods} disabled={isSyncing}>
+						{isSyncing ? "Adding Server..." : "Add Server to Minecraft (Sync mods coming soon)"}
+					</button>
+				)}
 				<button className="mc-button large green" onClick={connectToServer} disabled={!launcherInstalled}>Launch Minecraft</button>
 				{launcherInstalled
 					? <button className="mc-button large" onClick={deleteLauncher} disabled={isInstalling}>Delete Launcher</button>

@@ -8,3 +8,5 @@ export function DeleteLauncher():Promise<boolean>;
 export function InstallLauncher():Promise<boolean>;
 
 export function StartMinecraftClient():Promise<boolean>;
+
+export function SyncMods():Promise<boolean>;

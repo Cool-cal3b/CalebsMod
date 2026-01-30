@@ -2,6 +2,7 @@ package go_services
 
 import (
 	"archive/zip"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,6 +13,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/Tnze/go-mc/nbt"
 )
 
 type AutoConnectConfig struct {
@@ -25,6 +28,16 @@ type GitHubRelease struct {
 		Name               string `json:"name"`
 		BrowserDownloadURL string `json:"browser_download_url"`
 	} `json:"assets"`
+}
+
+type MinecraftServer struct {
+	Hidden bool   `nbt:"hidden,omitempty"`
+	IP     string `nbt:"ip"`
+	Name   string `nbt:"name"`
+}
+
+type ServersData struct {
+	Servers []MinecraftServer `nbt:"servers"`
 }
 
 const (
@@ -101,6 +114,73 @@ func DeleteLauncher() (bool, error) {
 		return false, fmt.Errorf("failed to remove PrismLauncher directory: %w. Make sure PrismLauncher is closed", err)
 	}
 
+	return true, nil
+}
+
+func SyncMods() (bool, error) {
+	prismPath, err := getPrismLauncherPath()
+	if err != nil {
+		return false, fmt.Errorf("failed to get PrismLauncher path: %w", err)
+	}
+
+	instancePath := filepath.Join(prismPath, "instances", INSTANCE_NAME)
+	if _, err := os.Stat(instancePath); os.IsNotExist(err) {
+		return false, fmt.Errorf("instance not found. Please install the launcher first")
+	}
+
+ 	minecraftPath := filepath.Join(instancePath, "minecraft")
+	if err := os.MkdirAll(minecraftPath, 0755); err != nil {
+		return false, fmt.Errorf("failed to create minecraft directory: %w", err)
+	}
+
+	serversFilePath := filepath.Join(minecraftPath, "servers.dat")
+	
+	serverAddress := "mc.calebwash.com"
+	serverName := "Caleb's Mod Server"
+
+	servers, err := readServersFile(serversFilePath)
+	if err != nil {
+		fmt.Printf("Error reading servers file: %v\n", err)
+		servers = []MinecraftServer{}
+	}
+
+	fmt.Printf("Read %d servers from file\n", len(servers))
+
+	serverExists := false
+	for i, server := range servers {
+		fmt.Printf("Server %d: IP=%s, Name=%s, Hidden=%v\n", i, server.IP, server.Name, server.Hidden)
+		cleanIP := strings.TrimSuffix(server.IP, ":25565")
+		if cleanIP == serverAddress || server.IP == serverAddress {
+			serverExists = true
+			fmt.Printf("BEFORE UPDATE: IP=%s, Name=%s, Hidden=%v\n", servers[i].IP, servers[i].Name, servers[i].Hidden)
+			servers[i].Name = serverName
+			servers[i].IP = serverAddress
+			servers[i].Hidden = false
+			fmt.Printf("AFTER UPDATE: IP=%s, Name=%s, Hidden=%v\n", servers[i].IP, servers[i].Name, servers[i].Hidden)
+			break
+		}
+	}
+	
+	fmt.Printf("About to write servers:\n")
+	for i, server := range servers {
+		fmt.Printf("  Server %d: IP=%s, Name=%s, Hidden=%v\n", i, server.IP, server.Name, server.Hidden)
+	}
+
+	if !serverExists {
+		fmt.Printf("Adding new server: %s\n", serverAddress)
+		servers = append(servers, MinecraftServer{
+			Hidden: false,
+			IP:     serverAddress,
+			Name:   serverName,
+		})
+	}
+
+	fmt.Printf("Writing %d servers to file: %s\n", len(servers), serversFilePath)
+	if err := writeServersFile(serversFilePath, servers); err != nil {
+		return false, fmt.Errorf("failed to write servers file: %w", err)
+	}
+
+	fmt.Printf("Successfully wrote servers file\n")
 	return true, nil
 }
 
@@ -467,4 +547,53 @@ func getServerAddress() (string, error) {
 	}
 
 	return fmt.Sprintf("%s:%s", ipAndPortResponseData.Ip, ipAndPortResponseData.Port), nil
+}
+
+func readServersFile(filePath string) ([]MinecraftServer, error) {
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		fmt.Printf("Servers file does not exist: %s\n", filePath)
+		return []MinecraftServer{}, nil
+	}
+
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read servers file: %w", err)
+	}
+
+	fmt.Printf("Read %d bytes from servers file\n", len(data))
+
+	var serversData ServersData
+	reader := bytes.NewReader(data)
+	decoder := nbt.NewDecoder(reader)
+	
+	if _, err := decoder.Decode(&serversData); err != nil {
+		fmt.Printf("Failed to decode NBT: %v\n", err)
+		return []MinecraftServer{}, nil
+	}
+
+	fmt.Printf("Decoded %d servers from NBT\n", len(serversData.Servers))
+	return serversData.Servers, nil
+}
+
+func writeServersFile(filePath string, servers []MinecraftServer) error {
+	serversData := ServersData{
+		Servers: servers,
+	}
+
+	var buf bytes.Buffer
+	encoder := nbt.NewEncoder(&buf)
+	
+	if err := encoder.Encode(serversData, ""); err != nil {
+		return fmt.Errorf("failed to encode servers: %w", err)
+	}
+
+	fmt.Printf("Encoded %d bytes of NBT data\n", buf.Len())
+	fmt.Printf("Writing to file: %s\n", filePath)
+
+	if err := os.WriteFile(filePath, buf.Bytes(), 0644); err != nil {
+		return fmt.Errorf("failed to write servers file: %w", err)
+	}
+
+	fmt.Printf("Successfully wrote file\n")
+	return nil
 }
