@@ -4,7 +4,7 @@ import "os"
 
 func GetServerUrl() string {
 	if IsRunningInDevMode() {
-		return "http://localhost:3000"
+		return "http://localhost:3001"
 	}
 	return "https://mc.calebwash.com"
 }

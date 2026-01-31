@@ -51,23 +51,23 @@ if (-not (Test-Path (Join-Path $clientPath "frontend/node_modules"))) {
 if ($sw) {
 	Write-Host "[INFO] Starting in separate windows..." -ForegroundColor Cyan
 	Write-Host "[WARN] Close windows manually when done" -ForegroundColor Yellow
-	Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$serverPath'; npm run start:dev"
+	Start-Process powershell -ArgumentList "-NoExit", "-Command", "`$env:CALEBS_MOD_ENV='dev'; `$env:PORT=3001; cd '$serverPath'; npm run start:dev"
 	Start-Sleep -Seconds 2
-	Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$clientPath'; wails dev"
-	Write-Host "[OK] Server: http://localhost:3000" -ForegroundColor Green
+	Start-Process powershell -ArgumentList "-NoExit", "-Command", "`$env:CALEBS_MOD_ENV='dev'; cd '$clientPath'; wails dev"
+	Write-Host "[OK] Server: http://localhost:3001 (dev mode)" -ForegroundColor Green
 	Write-Host "[INFO] Close each window to stop (or just close this one)" -ForegroundColor Cyan
 }
 else {
 	Write-Host "[INFO] Starting services in separate windows..." -ForegroundColor Cyan
 	Write-Host "[INFO] This allows Ctrl+C to work properly" -ForegroundColor Yellow
 	
-	$serverProcess = Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$serverPath'; npm run start:dev" -PassThru
+	$serverProcess = Start-Process powershell -ArgumentList "-NoExit", "-Command", "`$env:CALEBS_MOD_ENV='dev'; `$env:PORT=3001; cd '$serverPath'; npm run start:dev" -PassThru
 	Start-Sleep -Seconds 3
-	$clientProcess = Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$clientPath'; wails dev" -PassThru
+	$clientProcess = Start-Process powershell -ArgumentList "-NoExit", "-Command", "`$env:CALEBS_MOD_ENV='dev'; cd '$clientPath'; wails dev" -PassThru
 	
 	Write-Host "[OK] Server window opened (PID: $($serverProcess.Id))" -ForegroundColor Green
 	Write-Host "[OK] Client window opened (PID: $($clientProcess.Id))" -ForegroundColor Green
-	Write-Host "[OK] Server: http://localhost:3000" -ForegroundColor Green
+	Write-Host "[OK] Server: http://localhost:3001 (dev mode)" -ForegroundColor Green
 	Write-Host ""
 	Write-Host "[INFO] Press Ctrl+C to stop all services and close windows" -ForegroundColor Yellow
 	

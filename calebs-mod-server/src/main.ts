@@ -9,10 +9,16 @@ async function bootstrap() {
     credentials: true,
   });
 
-  const port = process.env.PORT ?? 3000;
+  const isDevMode = process.env.CALEBS_MOD_ENV === 'dev';
+  const defaultPort = isDevMode ? 3001 : 3000;
+  const port = process.env.PORT ?? defaultPort;
+  
   await app.listen(port);
 
   console.log(`CalebsMod Server running on http://localhost:${port}`);
+  if (isDevMode) {
+    console.log(`[DEV MODE] Running on development port ${port}`);
+  }
   console.log(`API endpoints:`);
   console.log(`  - GET  /api/modpack/manifest/:packId`);
   console.log(`  - GET  /api/modpack/mods/:sha256`);

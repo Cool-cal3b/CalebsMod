@@ -81,7 +81,6 @@ function App() {
 		   </div>
 
 		   <div className="options">
-
 				{launcherInstalled && (
 					<button className="mc-button large" onClick={syncMods} disabled={isSyncing}>
 						{isSyncing ? "Adding Server..." : "Add Server to Minecraft (Sync mods coming soon)"}
