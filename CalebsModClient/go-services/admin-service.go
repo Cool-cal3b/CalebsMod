@@ -102,3 +102,59 @@ type PlayersInfo struct {
 	Max     int      `json:"max"`
 	Players []string `json:"players"`
 }
+
+type ModpackUploadResponse struct {
+	FilesProcessed int                    `json:"filesProcessed"`
+	Files          []ModpackFileInfo      `json:"files"`
+}
+
+type ModpackFileInfo struct {
+	Sha256       string `json:"sha256"`
+	FileName     string `json:"fileName"`
+	FileSize     int    `json:"fileSize"`
+	FileType     string `json:"fileType"`
+	RelativePath string `json:"relativePath"`
+}
+
+func UploadModpackZip(fileContent []byte, fileName string) (*ModpackUploadResponse, error) {
+	url := "/api/modpack/upload-zip"
+	response, err := MakeAuthenticatedPostRequestWithFile(url, "file", fileContent, fileName)
+	if err != nil {
+		return nil, err
+	}
+
+	var uploadResponse ModpackUploadResponse
+	err = json.Unmarshal(response, &uploadResponse)
+	if err != nil {
+		return nil, err
+	}
+
+	return &uploadResponse, nil
+}
+
+func GetManifest() ([]PackFileDto, error) {
+	response, err := MakeAuthenticatedGetRequest("/api/modpack/manifest")
+	if err != nil {
+		return nil, err
+	}
+
+	var files []PackFileDto
+	err = json.Unmarshal(response, &files)
+	if err != nil {
+		return nil, err
+	}
+
+	return files, nil
+}
+
+type PackFileDto struct {
+	Sha256       string `json:"sha256"`
+	FileName     string `json:"fileName"`
+	FileSize     int    `json:"fileSize"`
+	FileType     string `json:"fileType"`
+	RelativePath string `json:"relativePath"`
+	OriginalUrl  string `json:"originalUrl"`
+	ModId        string `json:"modId"`
+	ModVersion   string `json:"modVersion"`
+	Required     bool   `json:"required"`
+}

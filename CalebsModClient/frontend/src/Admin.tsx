@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import { useState, useEffect } from 'react';
-import { AdminKeyIsSet, IsLoggedIn, Login, SetAdminKey, ClearAdminKey, StartServer, StopServer, UpdateDns, GetServerStatus } from '../wailsjs/go/main/Admin';
+import { AdminKeyIsSet, IsLoggedIn, Login, SetAdminKey, ClearAdminKey, StartServer, StopServer, UpdateDns, GetServerStatus, UploadModpackZip } from '../wailsjs/go/main/Admin';
 import { ServerStatus, MinecraftServerResponse, ServerStatusResponse } from './types/admin-types';
 import ConfirmModal from './components/ConfirmModal';
 
@@ -16,6 +16,7 @@ function Admin() {
 	const [serverStatus, setServerStatus] = useState<string | null>(null);
 	const [numberOfPlayers, setNumberOfPlayers] = useState<number | null>(null);
 	const [maxPlayers, setMaxPlayers] = useState<number | null>(null);
+	const [uploadProgress, setUploadProgress] = useState<string>('');
 
 	useEffect(() => {
 		checkAuthStatus();
@@ -166,6 +167,30 @@ function Admin() {
 		}
 	};
 
+	const handleUploadModpackZip = async (file: File | undefined) => {
+		if (!file) return;
+		
+		setUploadProgress('Reading file...');
+		setError('');
+
+		try {
+			const arrayBuffer = await file.arrayBuffer();
+			const uint8Array = new Uint8Array(arrayBuffer);
+			
+			setUploadProgress(`Uploading ${file.name}...`);
+			
+			const response = await UploadModpackZip(Array.from(uint8Array), file.name);
+			
+			setUploadProgress('');
+			setError(`Successfully uploaded! Processed ${response.filesProcessed} files.`);
+			console.log('Upload response:', response);
+		} catch (err) {
+			setUploadProgress('');
+			setError('Failed to upload modpack zip: ' + (err as Error).message);
+			console.error(err);
+		}
+	};
+
 	if (!adminKeyIsSet) {
 		return (
 			<div id="Admin">
@@ -281,9 +306,29 @@ function Admin() {
 				<div className="admin-sections">
 					<section className="admin-section">
 						<h2>Manage Mods</h2>
-						<button className="mc-button">Add Mod by URL</button>
-						<button className="mc-button">Upload Mod File</button>
-						<button className="mc-button">View All Mods</button>
+
+						{uploadProgress && (
+							<div className="upload-progress">{uploadProgress}</div>
+						)}
+
+						<div className="button-group">
+							<button className="mc-button">Add Mod by URL</button>
+							<button 
+								className="mc-button green" 
+								onClick={() => document.getElementById('modpack-zip-input')?.click()}
+								disabled={uploadProgress !== ''}
+							>
+								{uploadProgress ? uploadProgress : 'Upload Modpack Zip'}
+							</button>
+							<input 
+								id="modpack-zip-input" 
+								type="file" 
+								onChange={(e) => handleUploadModpackZip(e.target.files?.[0])} 
+								accept=".zip" 
+								style={{ display: 'none' }} 
+							/>
+							<button className="mc-button">View All Mods</button>
+						</div>
 					</section>
 
 					<section className="admin-section">

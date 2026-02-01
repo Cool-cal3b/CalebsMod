@@ -55,3 +55,11 @@ func (a *Admin) UpdateDns() (bool, string, error) {
 func (a *Admin) GetToken() string {
 	return go_services.GetToken()
 }
+
+func (a *Admin) UploadModpackZip(fileContent []byte, fileName string) (*go_services.ModpackUploadResponse, error) {
+	return go_services.UploadModpackZip(fileContent, fileName)
+}
+
+func (a *Admin) GetManifest() ([]go_services.PackFileDto, error) {
+	return go_services.GetManifest()
+}

@@ -26,44 +26,17 @@ export class DatabaseService implements OnModuleInit {
 
   private initSchema() {
     this.db.exec(`
-      CREATE TABLE IF NOT EXISTS packs (
-        id TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
-        minecraft_version TEXT NOT NULL,
-        loader_type TEXT NOT NULL,
-        loader_version TEXT NOT NULL,
-        created_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL
-      );
-
-      CREATE TABLE IF NOT EXISTS pack_versions (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        pack_id TEXT NOT NULL,
-        version TEXT NOT NULL,
-        changelog TEXT,
-        created_at INTEGER NOT NULL,
-        FOREIGN KEY (pack_id) REFERENCES packs(id) ON DELETE CASCADE,
-        UNIQUE(pack_id, version)
-      );
-
-      CREATE TABLE IF NOT EXISTS mods (
+      CREATE TABLE IF NOT EXISTS files (
         sha256 TEXT PRIMARY KEY,
         file_name TEXT NOT NULL,
         file_size INTEGER NOT NULL,
+        file_type TEXT NOT NULL DEFAULT 'mod',
+        relative_path TEXT NOT NULL,
         original_url TEXT,
         mod_id TEXT,
         mod_version TEXT,
-        created_at INTEGER NOT NULL
-      );
-
-      CREATE TABLE IF NOT EXISTS pack_version_mods (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        pack_version_id INTEGER NOT NULL,
-        mod_sha256 TEXT NOT NULL,
         required BOOLEAN DEFAULT 1,
-        FOREIGN KEY (pack_version_id) REFERENCES pack_versions(id) ON DELETE CASCADE,
-        FOREIGN KEY (mod_sha256) REFERENCES mods(sha256) ON DELETE CASCADE,
-        UNIQUE(pack_version_id, mod_sha256)
+        created_at INTEGER NOT NULL
       );
 
       CREATE TABLE IF NOT EXISTS access_requests (
@@ -96,8 +69,38 @@ export class DatabaseService implements OnModuleInit {
       CREATE INDEX IF NOT EXISTS idx_access_requests_status ON access_requests(status);
       CREATE INDEX IF NOT EXISTS idx_access_requests_username ON access_requests(username);
       CREATE INDEX IF NOT EXISTS idx_audit_log_created_at ON audit_log(created_at);
-      CREATE INDEX IF NOT EXISTS idx_pack_versions_pack_id ON pack_versions(pack_id);
     `);
+
+    this.migrateExistingData();
+  }
+
+  private migrateExistingData() {
+    const tables = this.db
+      .prepare("SELECT name FROM sqlite_master WHERE type='table'")
+      .all() as Array<{ name: string }>;
+
+    const hasFilesTable = tables.some(t => t.name === 'files');
+    const hasModsTable = tables.some(t => t.name === 'mods');
+
+    if (!hasFilesTable && hasModsTable) {
+      this.db.exec(`
+        CREATE TABLE files AS SELECT * FROM mods;
+        DROP TABLE IF EXISTS pack_version_mods;
+        DROP TABLE IF EXISTS pack_versions;
+        DROP TABLE IF EXISTS packs;
+        DROP TABLE IF EXISTS mods;
+      `);
+    }
+
+    const columns = this.db
+      .prepare("PRAGMA table_info(files)")
+      .all() as Array<{ name: string }>;
+    
+    const hasRequired = columns.some(col => col.name === 'required');
+    
+    if (!hasRequired) {
+      this.db.exec(`ALTER TABLE files ADD COLUMN required BOOLEAN DEFAULT 1`);
+    }
   }
 
   getDb(): Database.Database {

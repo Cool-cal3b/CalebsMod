@@ -6,6 +6,8 @@ export function AdminKeyIsSet():Promise<boolean>;
 
 export function ClearAdminKey():Promise<void>;
 
+export function GetManifest():Promise<Array<go_services.PackFileDto>>;
+
 export function GetServerStatus():Promise<go_services.ServerStatusResponse>;
 
 export function GetToken():Promise<string>;
@@ -21,3 +23,5 @@ export function StartServer():Promise<go_services.ServerStatus>;
 export function StopServer():Promise<go_services.ServerStatus>;
 
 export function UpdateDns():Promise<boolean>;
+
+export function UploadModpackZip(arg1:Array<number>,arg2:string):Promise<go_services.ModpackUploadResponse>;

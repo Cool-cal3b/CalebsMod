@@ -1,0 +1,29 @@
+---
+description: Communication and documentation preferences
+alwaysApply: true
+---
+
+# Communication Style
+
+## After Completing Tasks
+
+Be brief and direct. DO NOT create lengthy summaries, documentation files, or README files unless explicitly requested.
+
+Instead:
+- List the key files changed
+- Mention important implementation details only if they're critical to understand
+- Skip obvious details or explanations of what was implemented (the user can see the code)
+
+## Documentation
+
+- Do NOT create documentation files, summaries, or guides unless user explicitly requests them
+- Do NOT waste tokens on comprehensive writeups
+- Focus on code, not explanations
+
+## Example
+
+✅ GOOD:
+"Updated Admin.tsx to handle zip uploads, added UploadModpackZip to admin-service.go, and styled the new pack selector. Ready to test."
+
+❌ BAD:
+Creating multiple README files, implementation summaries, testing guides, and lengthy explanations of what was done.

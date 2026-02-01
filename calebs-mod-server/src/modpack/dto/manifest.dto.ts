@@ -1,22 +1,11 @@
-export class ModDto {
+export class PackFileDto {
   sha256: string;
   fileName: string;
   fileSize: number;
+  fileType: string;
+  relativePath: string;
   originalUrl?: string;
   modId?: string;
   modVersion?: string;
   required: boolean;
-}
-
-export class PackManifestDto {
-  packName: string;
-  packId: string;
-  version: string;
-  minecraftVersion: string;
-  loader: {
-    type: string;
-    version: string;
-  };
-  mods: ModDto[];
-  updatedAt: number;
 }

@@ -10,6 +10,10 @@ export function ClearAdminKey() {
   return window['go']['main']['Admin']['ClearAdminKey']();
 }
 
+export function GetManifest() {
+  return window['go']['main']['Admin']['GetManifest']();
+}
+
 export function GetServerStatus() {
   return window['go']['main']['Admin']['GetServerStatus']();
 }
@@ -40,4 +44,8 @@ export function StopServer() {
 
 export function UpdateDns() {
   return window['go']['main']['Admin']['UpdateDns']();
+}
+
+export function UploadModpackZip(arg1, arg2) {
+  return window['go']['main']['Admin']['UploadModpackZip'](arg1, arg2);
 }
