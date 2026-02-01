@@ -10,6 +10,10 @@ export function ClearAdminKey() {
   return window['go']['main']['Admin']['ClearAdminKey']();
 }
 
+export function DeleteAllFiles() {
+  return window['go']['main']['Admin']['DeleteAllFiles']();
+}
+
 export function GetManifest() {
   return window['go']['main']['Admin']['GetManifest']();
 }
@@ -28,6 +32,10 @@ export function IsLoggedIn() {
 
 export function Login() {
   return window['go']['main']['Admin']['Login']();
+}
+
+export function SelectAndUploadModpackZip() {
+  return window['go']['main']['Admin']['SelectAndUploadModpackZip']();
 }
 
 export function SetAdminKey(arg1) {

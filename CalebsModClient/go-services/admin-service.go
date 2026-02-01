@@ -104,8 +104,8 @@ type PlayersInfo struct {
 }
 
 type ModpackUploadResponse struct {
-	FilesProcessed int                    `json:"filesProcessed"`
-	Files          []ModpackFileInfo      `json:"files"`
+	FilesProcessed int               `json:"filesProcessed"`
+	Files          []ModpackFileInfo `json:"files"`
 }
 
 type ModpackFileInfo struct {
@@ -118,7 +118,9 @@ type ModpackFileInfo struct {
 
 func UploadModpackZip(fileContent []byte, fileName string) (*ModpackUploadResponse, error) {
 	url := "/api/modpack/upload-zip"
+	fmt.Println("Uploading modpack zip to ", url)
 	response, err := MakeAuthenticatedPostRequestWithFile(url, "file", fileContent, fileName)
+	fmt.Println("Response: ", string(response))
 	if err != nil {
 		return nil, err
 	}
@@ -130,6 +132,23 @@ func UploadModpackZip(fileContent []byte, fileName string) (*ModpackUploadRespon
 	}
 
 	return &uploadResponse, nil
+}
+
+func UploadModpackZipFromPath(filePath string) (*ModpackUploadResponse, error) {
+	fileContent, err := ReadFile(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read file: %w", err)
+	}
+
+	fileName := filePath[len(filePath)-1:]
+	for i := len(filePath) - 1; i >= 0; i-- {
+		if filePath[i] == '/' || filePath[i] == '\\' {
+			fileName = filePath[i+1:]
+			break
+		}
+	}
+
+	return UploadModpackZip(fileContent, fileName)
 }
 
 func GetManifest() ([]PackFileDto, error) {
@@ -145,6 +164,11 @@ func GetManifest() ([]PackFileDto, error) {
 	}
 
 	return files, nil
+}
+
+func DeleteAllFiles() error {
+	_, err := MakeAuthenticatedDeleteRequest("/api/modpack/files")
+	return err
 }
 
 type PackFileDto struct {

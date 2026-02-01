@@ -1,10 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { DockerService } from '../docker/docker.service';
 import { RconService } from '../rcon/rcon.service';
+import { ModpackService } from '../modpack/modpack.service';
 import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as crypto from 'crypto';
 
 const CLOUDFLARE_DOMAIN = 'calebwash.com';
 const CLOUDFLARE_SUBDOMAIN = 'mc';
@@ -18,6 +20,7 @@ export class ServerService {
   constructor(
     private dockerService: DockerService,
     private rconService: RconService,
+    private modpackService: ModpackService,
   ) {
     const accessKeyId = process.env.S3_ACCESS_KEY_ID;
     const secretAccessKey = process.env.S3_SECRET_ACCESS_KEY;
@@ -38,7 +41,56 @@ export class ServerService {
   }
 
   async startServer() {
+    await this.syncModpackFiles();
     return await this.dockerService.startServer();
+  }
+
+  private async syncModpackFiles() {
+    const minecraftDataPath = process.env.MINECRAFT_DATA_PATH || './minecraft-data';
+    const absoluteMinecraftPath = path.resolve(minecraftDataPath);
+
+    const manifest = this.modpackService.getManifest();
+    
+    if (manifest.length === 0) {
+      console.log('No files to sync to Minecraft server');
+      return;
+    }
+
+    console.log(`Syncing ${manifest.length} files to Minecraft server...`);
+
+    for (const file of manifest) {
+      const sourceFilePath = this.modpackService.getPackFile(file.sha256);
+      
+      if (!sourceFilePath || !fs.existsSync(sourceFilePath)) {
+        console.warn(`Source file not found for ${file.fileName} (${file.sha256})`);
+        continue;
+      }
+
+      const targetPath = path.join(absoluteMinecraftPath, file.relativePath);
+      const targetDir = path.dirname(targetPath);
+
+      if (!fs.existsSync(targetDir)) {
+        fs.mkdirSync(targetDir, { recursive: true });
+      }
+
+      if (!fs.existsSync(targetPath)) {
+        console.log(`Copying ${file.fileName} to ${file.relativePath}`);
+        fs.copyFileSync(sourceFilePath, targetPath);
+      } else {
+        const existingSha256 = this.calculateFileSha256(targetPath);
+        if (existingSha256 !== file.sha256) {
+          console.log(`Updating ${file.fileName} (hash mismatch)`);
+          fs.copyFileSync(sourceFilePath, targetPath);
+        }
+      }
+    }
+
+    console.log('File sync complete');
+  }
+
+  private calculateFileSha256(filePath: string): string {
+    const fileBuffer = fs.readFileSync(filePath);
+    return crypto.createHash('sha256').update(fileBuffer).digest('hex');
   }
 
   async stopServer() {

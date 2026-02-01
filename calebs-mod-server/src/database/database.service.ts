@@ -36,7 +36,23 @@ export class DatabaseService implements OnModuleInit {
         mod_id TEXT,
         mod_version TEXT,
         required BOOLEAN DEFAULT 1,
+        server_only BOOLEAN DEFAULT 0,
+        client_only BOOLEAN DEFAULT 0,
         created_at INTEGER NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS revisions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        created_at INTEGER NOT NULL,
+        user TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS revision_files (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        revision_id INTEGER NOT NULL,
+        file_sha256 TEXT NOT NULL,
+        action TEXT NOT NULL,
+        FOREIGN KEY (revision_id) REFERENCES revisions(id)
       );
 
       CREATE TABLE IF NOT EXISTS access_requests (
@@ -69,6 +85,8 @@ export class DatabaseService implements OnModuleInit {
       CREATE INDEX IF NOT EXISTS idx_access_requests_status ON access_requests(status);
       CREATE INDEX IF NOT EXISTS idx_access_requests_username ON access_requests(username);
       CREATE INDEX IF NOT EXISTS idx_audit_log_created_at ON audit_log(created_at);
+      CREATE INDEX IF NOT EXISTS idx_revision_files_revision_id ON revision_files(revision_id);
+      CREATE INDEX IF NOT EXISTS idx_revision_files_file_sha256 ON revision_files(file_sha256);
     `);
 
     this.migrateExistingData();
@@ -90,16 +108,6 @@ export class DatabaseService implements OnModuleInit {
         DROP TABLE IF EXISTS packs;
         DROP TABLE IF EXISTS mods;
       `);
-    }
-
-    const columns = this.db
-      .prepare("PRAGMA table_info(files)")
-      .all() as Array<{ name: string }>;
-    
-    const hasRequired = columns.some(col => col.name === 'required');
-    
-    if (!hasRequired) {
-      this.db.exec(`ALTER TABLE files ADD COLUMN required BOOLEAN DEFAULT 1`);
     }
   }
 

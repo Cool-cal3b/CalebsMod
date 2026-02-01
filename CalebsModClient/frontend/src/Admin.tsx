@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import { useState, useEffect } from 'react';
-import { AdminKeyIsSet, IsLoggedIn, Login, SetAdminKey, ClearAdminKey, StartServer, StopServer, UpdateDns, GetServerStatus, UploadModpackZip } from '../wailsjs/go/main/Admin';
+import { AdminKeyIsSet, IsLoggedIn, Login, SetAdminKey, ClearAdminKey, StartServer, StopServer, UpdateDns, GetServerStatus, SelectAndUploadModpackZip, DeleteAllFiles } from '../wailsjs/go/main/Admin';
 import { ServerStatus, MinecraftServerResponse, ServerStatusResponse } from './types/admin-types';
 import ConfirmModal from './components/ConfirmModal';
 
@@ -11,6 +11,7 @@ function Admin() {
 	const [error, setError] = useState('');
 	const [loading, setLoading] = useState(false);
 	const [showClearModal, setShowClearModal] = useState(false);
+	const [showDeleteAllModal, setShowDeleteAllModal] = useState(false);
 
 	const [serverIsRunning, setServerIsRunning] = useState<boolean | null>(null);
 	const [serverStatus, setServerStatus] = useState<string | null>(null);
@@ -167,27 +168,40 @@ function Admin() {
 		}
 	};
 
-	const handleUploadModpackZip = async (file: File | undefined) => {
-		if (!file) return;
-		
-		setUploadProgress('Reading file...');
+	const handleUploadModpackZip = async () => {
+		setUploadProgress('Opening file dialog...');
 		setError('');
 
 		try {
-			const arrayBuffer = await file.arrayBuffer();
-			const uint8Array = new Uint8Array(arrayBuffer);
-			
-			setUploadProgress(`Uploading ${file.name}...`);
-			
-			const response = await UploadModpackZip(Array.from(uint8Array), file.name);
+			const response = await SelectAndUploadModpackZip();
 			
 			setUploadProgress('');
-			setError(`Successfully uploaded! Processed ${response.filesProcessed} files.`);
-			console.log('Upload response:', response);
+			if (response) {
+				setError(`Successfully uploaded! Processed ${response.filesProcessed} files.`);
+				console.log('Upload response:', response);
+			} else {
+				setError('No file selected.');
+			}
 		} catch (err) {
 			setUploadProgress('');
 			setError('Failed to upload modpack zip: ' + (err as Error).message);
 			console.error(err);
+		}
+	};
+
+	const handleDeleteAllFiles = async () => {
+		setShowDeleteAllModal(false);
+		setLoading(true);
+		setError('');
+
+		try {
+			await DeleteAllFiles();
+			setError('Successfully deleted all files. A revision has been created to sync clients.');
+		} catch (err) {
+			setError('Failed to delete files: ' + (err as Error).message);
+			console.error(err);
+		} finally {
+			setLoading(false);
 		}
 	};
 
@@ -313,21 +327,20 @@ function Admin() {
 
 						<div className="button-group">
 							<button className="mc-button">Add Mod by URL</button>
+						<button 
+							className="mc-button green" 
+							onClick={handleUploadModpackZip}
+							disabled={uploadProgress !== ''}
+						>
+							{uploadProgress ? uploadProgress : 'Upload Modpack Zip'}
+						</button>
+						<button className="mc-button">View All Mods</button>
 							<button 
-								className="mc-button green" 
-								onClick={() => document.getElementById('modpack-zip-input')?.click()}
-								disabled={uploadProgress !== ''}
+								className="mc-button red" 
+								onClick={() => setShowDeleteAllModal(true)}
 							>
-								{uploadProgress ? uploadProgress : 'Upload Modpack Zip'}
+								Delete All Files
 							</button>
-							<input 
-								id="modpack-zip-input" 
-								type="file" 
-								onChange={(e) => handleUploadModpackZip(e.target.files?.[0])} 
-								accept=".zip" 
-								style={{ display: 'none' }} 
-							/>
-							<button className="mc-button">View All Mods</button>
 						</div>
 					</section>
 
@@ -365,6 +378,14 @@ function Admin() {
 				message="Are you sure you want to clear the admin secret? You will need to enter it again."
 				onConfirm={handleClearAdminKey}
 				onCancel={() => setShowClearModal(false)}
+			/>
+
+			<ConfirmModal
+				isOpen={showDeleteAllModal}
+				title="Delete All Files?"
+				message="Are you sure you want to delete ALL files (mods, configs, resource packs, etc.)? This will create a revision marking all files for deletion. Clients will sync and remove all files."
+				onConfirm={handleDeleteAllFiles}
+				onCancel={() => setShowDeleteAllModal(false)}
 			/>
 		</>
 	);

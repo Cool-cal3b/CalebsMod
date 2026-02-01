@@ -3,6 +3,7 @@ package go_services
 import (
 	"archive/zip"
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -128,13 +129,167 @@ func SyncMods() (bool, error) {
 		return false, fmt.Errorf("instance not found. Please install the launcher first")
 	}
 
- 	minecraftPath := filepath.Join(instancePath, "minecraft")
+	minecraftPath := filepath.Join(instancePath, "minecraft")
 	if err := os.MkdirAll(minecraftPath, 0755); err != nil {
 		return false, fmt.Errorf("failed to create minecraft directory: %w", err)
 	}
 
+	if err := addServerToServersFile(minecraftPath); err != nil {
+		return false, fmt.Errorf("failed to add server to servers file: %w", err)
+	}
+
+	currentRevision, err := getCurrentRevision()
+	if err != nil {
+		return false, fmt.Errorf("failed to get current revision: %w", err)
+	}
+
+	syncData, err := fetchSyncData(currentRevision)
+	if err != nil {
+		return false, fmt.Errorf("failed to fetch sync data: %w", err)
+	}
+
+	if syncData.UpToDate {
+		fmt.Println("Already up to date!")
+		return true, nil
+	}
+
+	fmt.Printf("Syncing from revision %d to %d...\n", currentRevision, syncData.LatestRevision)
+
+	for _, relPath := range syncData.FilesToRemove {
+		targetPath := filepath.Join(minecraftPath, relPath)
+		if err := os.Remove(targetPath); err != nil && !os.IsNotExist(err) {
+			fmt.Printf("Warning: failed to remove %s: %v\n", relPath, err)
+		} else {
+			fmt.Printf("Removed: %s\n", relPath)
+		}
+	}
+
+	if len(syncData.FilesToAdd) > 0 {
+		if err := extractSyncZip(syncData.ZipData, minecraftPath); err != nil {
+			return false, fmt.Errorf("failed to extract files: %w", err)
+		}
+		fmt.Printf("Added %d files\n", len(syncData.FilesToAdd))
+	}
+
+	if err := saveCurrentRevision(syncData.LatestRevision); err != nil {
+		return false, fmt.Errorf("failed to save revision: %w", err)
+	}
+
+	fmt.Printf("Sync complete! Now at revision %d\n", syncData.LatestRevision)
+	return true, nil
+}
+
+type SyncResponse struct {
+	UpToDate       bool     `json:"upToDate"`
+	LatestRevision int      `json:"latestRevision"`
+	FilesToAdd     []File   `json:"filesToAdd"`
+	FilesToRemove  []string `json:"filesToRemove"`
+	ZipData        string   `json:"zipData"`
+}
+
+type File struct {
+	Sha256       string `json:"sha256"`
+	FileName     string `json:"fileName"`
+	FileType     string `json:"fileType"`
+	RelativePath string `json:"relativePath"`
+	FileSize     int    `json:"fileSize"`
+}
+
+func getCurrentRevision() (int, error) {
+	data, err := GetFileInLocalFolder("revision.txt")
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, nil
+		}
+		return 0, err
+	}
+
+	var revision int
+	_, err = fmt.Sscanf(string(data), "%d", &revision)
+	if err != nil {
+		return 0, nil
+	}
+
+	return revision, nil
+}
+
+func saveCurrentRevision(revision int) error {
+	data := []byte(fmt.Sprintf("%d", revision))
+	return SaveFileInLocalFolder("revision.txt", data)
+}
+
+func fetchSyncData(fromRevision int) (*SyncResponse, error) {
+	url := fmt.Sprintf("/api/modpack/sync/%d", fromRevision)
+	resp, err := MakeGetRequest(url)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var syncResp SyncResponse
+	if err := json.Unmarshal(body, &syncResp); err != nil {
+		return nil, err
+	}
+
+	return &syncResp, nil
+}
+
+func extractSyncZip(base64Data string, targetDir string) error {
+	zipData, err := base64.StdEncoding.DecodeString(base64Data)
+	if err != nil {
+		return fmt.Errorf("failed to decode zip data: %w", err)
+	}
+
+	zipReader, err := zip.NewReader(bytes.NewReader(zipData), int64(len(zipData)))
+	if err != nil {
+		return fmt.Errorf("failed to read zip: %w", err)
+	}
+
+	for _, file := range zipReader.File {
+		if file.FileInfo().IsDir() {
+			continue
+		}
+
+		targetPath := filepath.Join(targetDir, file.Name)
+		targetFileDir := filepath.Dir(targetPath)
+
+		if err := os.MkdirAll(targetFileDir, 0755); err != nil {
+			return fmt.Errorf("failed to create directory %s: %w", targetFileDir, err)
+		}
+
+		rc, err := file.Open()
+		if err != nil {
+			return fmt.Errorf("failed to open file in zip: %w", err)
+		}
+
+		outFile, err := os.Create(targetPath)
+		if err != nil {
+			rc.Close()
+			return fmt.Errorf("failed to create file %s: %w", targetPath, err)
+		}
+
+		_, err = io.Copy(outFile, rc)
+		outFile.Close()
+		rc.Close()
+
+		if err != nil {
+			return fmt.Errorf("failed to write file %s: %w", targetPath, err)
+		}
+
+		fmt.Printf("Extracted: %s\n", file.Name)
+	}
+
+	return nil
+}
+
+func addServerToServersFile(minecraftPath string) error {
 	serversFilePath := filepath.Join(minecraftPath, "servers.dat")
-	
+
 	serverAddress := "mc.calebwash.com"
 	serverName := "Caleb's Mod Server"
 
@@ -160,7 +315,7 @@ func SyncMods() (bool, error) {
 			break
 		}
 	}
-	
+
 	fmt.Printf("About to write servers:\n")
 	for i, server := range servers {
 		fmt.Printf("  Server %d: IP=%s, Name=%s, Hidden=%v\n", i, server.IP, server.Name, server.Hidden)
@@ -177,11 +332,11 @@ func SyncMods() (bool, error) {
 
 	fmt.Printf("Writing %d servers to file: %s\n", len(servers), serversFilePath)
 	if err := writeServersFile(serversFilePath, servers); err != nil {
-		return false, fmt.Errorf("failed to write servers file: %w", err)
+		return fmt.Errorf("failed to write servers file: %w", err)
 	}
 
 	fmt.Printf("Successfully wrote servers file\n")
-	return true, nil
+	return nil
 }
 
 func killProcessByName(processName string) error {
@@ -565,7 +720,7 @@ func readServersFile(filePath string) ([]MinecraftServer, error) {
 	var serversData ServersData
 	reader := bytes.NewReader(data)
 	decoder := nbt.NewDecoder(reader)
-	
+
 	if _, err := decoder.Decode(&serversData); err != nil {
 		fmt.Printf("Failed to decode NBT: %v\n", err)
 		return []MinecraftServer{}, nil
@@ -582,7 +737,7 @@ func writeServersFile(filePath string, servers []MinecraftServer) error {
 
 	var buf bytes.Buffer
 	encoder := nbt.NewEncoder(&buf)
-	
+
 	if err := encoder.Encode(serversData, ""); err != nil {
 		return fmt.Errorf("failed to encode servers: %w", err)
 	}

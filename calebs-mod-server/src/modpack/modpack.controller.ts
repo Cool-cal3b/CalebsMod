@@ -51,6 +51,7 @@ export class ModpackController {
   )
   async uploadModpackZip(@UploadedFile() file: Express.Multer.File) {
     try {
+      console.log('Uploading modpack zip...');
       const result = await this.modpackService.uploadModpackZip(file.path);
       return result;
     } finally {
@@ -68,5 +69,52 @@ export class ModpackController {
   removeFile(@Param('sha256') sha256: string) {
     this.modpackService.removeFile(sha256);
     return { success: true };
+  }
+
+  @Get('sync/:fromRevision')
+  async syncFromRevision(
+    @Param('fromRevision') fromRevision: string,
+    @Res() res: Response,
+  ) {
+    const fromRevisionId = parseInt(fromRevision, 10);
+    const syncData = await this.modpackService.getSyncData(fromRevisionId);
+
+    if (syncData.upToDate) {
+      return res.json({
+        upToDate: true,
+        latestRevision: syncData.latestRevision,
+      });
+    }
+
+    const zipBuffer = await this.modpackService.createSyncZip(
+      syncData.filesToAdd,
+    );
+
+    res.set({
+      'Content-Type': 'application/json',
+      'X-Latest-Revision': syncData.latestRevision.toString(),
+      'X-Files-To-Remove': JSON.stringify(syncData.filesToRemove),
+    });
+
+    res.json({
+      upToDate: false,
+      latestRevision: syncData.latestRevision,
+      filesToAdd: syncData.filesToAdd,
+      filesToRemove: syncData.filesToRemove,
+      zipData: zipBuffer.toString('base64'),
+    });
+  }
+
+  @Get('latest-revision')
+  getLatestRevision() {
+    return {
+      latestRevision: this.modpackService.getLatestRevision(),
+    };
+  }
+
+  @Delete('files')
+  @UseGuards(JwtAuthGuard)
+  deleteAllFiles() {
+    return this.modpackService.deleteAllFiles();
   }
 }

@@ -70,6 +70,7 @@ export class ModpackService {
       .prepare('SELECT sha256 FROM files WHERE sha256 = ?')
       .get(sha256);
 
+    let isNewFile = false;
     if (!existingFile) {
       this.db
         .prepare(
@@ -90,11 +91,41 @@ export class ModpackService {
           required ? 1 : 0,
           Date.now(),
         );
+      isNewFile = true;
+    }
+
+    if (isNewFile) {
+      this.createRevision([{ sha256, action: 'add' }], user);
     }
 
     this.db.logAudit('add_file', 'file', sha256, user, { fileName, fileType });
 
     return { sha256, fileName, fileSize, fileType, relativePath };
+  }
+
+  private createRevision(
+    files: Array<{ sha256: string; action: 'add' | 'remove' }>,
+    user?: string,
+  ): number {
+    return this.db.transaction(() => {
+      const result = this.db
+        .prepare(
+          'INSERT INTO revisions (created_at, user) VALUES (?, ?)',
+        )
+        .run(Date.now(), user || null);
+
+      const revisionId = result.lastInsertRowid as number;
+
+      const stmt = this.db.prepare(
+        'INSERT INTO revision_files (revision_id, file_sha256, action) VALUES (?, ?, ?)',
+      );
+
+      for (const file of files) {
+        stmt.run(revisionId, file.sha256, file.action);
+      }
+
+      return revisionId;
+    });
   }
 
   async uploadModpackZip(zipFilePath: string, user?: string) {
@@ -107,6 +138,7 @@ export class ModpackService {
       fileType: string;
       relativePath: string;
     }> = [];
+    const newFiles: string[] = [];
 
     for (const entry of zipEntries) {
       if (entry.isDirectory) continue;
@@ -115,8 +147,18 @@ export class ModpackService {
       const entryPath = entry.entryName.replace(/\\/g, '/');
       
       let relevantPath = entryPath;
+      let serverOnly = false;
+      let clientOnly = false;
+
       if (entryPath.includes('overrides/')) {
         relevantPath = entryPath.split('overrides/')[1];
+      }
+
+      if (entryPath.includes('.for-manual-install/')) {
+        relevantPath = entryPath.split('.for-manual-install/')[1];
+        clientOnly = true;
+      } else if (entryPath.match(/^[^/]+\/(mods|config|thingpacks)\//)) {
+        serverOnly = true;
       }
 
       const pathParts = relevantPath.split('/');
@@ -143,19 +185,45 @@ export class ModpackService {
       try {
         fs.writeFileSync(tempFilePath, entry.getData());
 
-        const result = await this.addFile(
-          tempFilePath,
-          fileName,
-          fileType,
-          relativePath,
-          undefined,
-          undefined,
-          undefined,
-          true,
-          user,
-        );
+        const fileBuffer = fs.readFileSync(tempFilePath);
+        const sha256 = crypto.createHash('sha256').update(fileBuffer).digest('hex');
+        const fileSize = fileBuffer.length;
 
-        results.push(result);
+        const targetPath = path.join(this.filesStorePath, sha256);
+        if (!fs.existsSync(targetPath)) {
+          fs.copyFileSync(tempFilePath, targetPath);
+        }
+
+        const existingFile = this.db
+          .prepare('SELECT sha256 FROM files WHERE sha256 = ?')
+          .get(sha256);
+
+        if (!existingFile) {
+          this.db
+            .prepare(
+              `
+            INSERT INTO files (sha256, file_name, file_size, file_type, relative_path, original_url, mod_id, mod_version, required, server_only, client_only, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `,
+            )
+            .run(
+              sha256,
+              fileName,
+              fileSize,
+              fileType,
+              relativePath,
+              undefined,
+              undefined,
+              undefined,
+              1,
+              serverOnly ? 1 : 0,
+              clientOnly ? 1 : 0,
+              Date.now(),
+            );
+          newFiles.push(sha256);
+        }
+
+        results.push({ sha256, fileName, fileSize, fileType, relativePath });
       } finally {
         if (fs.existsSync(tempFilePath)) {
           fs.unlinkSync(tempFilePath);
@@ -163,9 +231,17 @@ export class ModpackService {
       }
     }
 
+    if (newFiles.length > 0) {
+      this.createRevision(
+        newFiles.map(sha256 => ({ sha256, action: 'add' })),
+        user,
+      );
+    }
+
     return {
       filesProcessed: results.length,
       files: results,
+      newFilesAdded: newFiles.length,
     };
   }
 
@@ -174,12 +250,14 @@ export class ModpackService {
       .prepare('DELETE FROM files WHERE sha256 = ?')
       .run(sha256);
 
+    this.createRevision([{ sha256, action: 'remove' }], user);
+
     this.db.logAudit('remove_file', 'file', sha256, user);
   }
 
   getManifest(): PackFileDto[] {
     const files = this.db
-      .prepare('SELECT * FROM files')
+      .prepare('SELECT * FROM files WHERE server_only = 0')
       .all() as any[];
 
     return files.map((f) => ({
@@ -198,5 +276,122 @@ export class ModpackService {
   getPackFile(sha256: string): string | null {
     const filePath = path.join(this.filesStorePath, sha256);
     return fs.existsSync(filePath) ? filePath : null;
+  }
+
+  getLatestRevision(): number {
+    const result = this.db
+      .prepare('SELECT MAX(id) as latestRevision FROM revisions')
+      .get() as { latestRevision: number | null };
+    return result.latestRevision || 0;
+  }
+
+  deleteAllFiles(user?: string) {
+    const allFiles = this.db
+      .prepare('SELECT sha256 FROM files')
+      .all() as Array<{ sha256: string }>;
+
+    if (allFiles.length === 0) {
+      return { filesDeleted: 0, message: 'No files to delete' };
+    }
+
+    this.createRevision(
+      allFiles.map(f => ({ sha256: f.sha256, action: 'remove' })),
+      user,
+    );
+
+    this.db.prepare('DELETE FROM files').run();
+
+    this.db.logAudit('delete_all_files', 'files', 'all', user, {
+      count: allFiles.length,
+    });
+
+    return {
+      filesDeleted: allFiles.length,
+      message: `Deleted ${allFiles.length} files`,
+    };
+  }
+
+  async getSyncData(fromRevisionId: number) {
+    const latestRevision = this.getLatestRevision();
+
+    if (fromRevisionId >= latestRevision) {
+      return {
+        upToDate: true,
+        latestRevision,
+        filesToAdd: [],
+        filesToRemove: [],
+      };
+    }
+
+    const revisionFiles = this.db
+      .prepare(
+        `
+        SELECT rf.file_sha256, rf.action, f.file_name, f.file_type, f.relative_path, f.file_size, f.server_only
+        FROM revision_files rf
+        LEFT JOIN files f ON rf.file_sha256 = f.sha256
+        WHERE rf.revision_id > ?
+        ORDER BY rf.revision_id ASC
+      `,
+      )
+      .all(fromRevisionId) as Array<{
+      file_sha256: string;
+      action: string;
+      file_name: string;
+      file_type: string;
+      relative_path: string;
+      file_size: number;
+      server_only: number;
+    }>;
+
+    const fileMap = new Map<string, { action: string; file: any; serverOnly: boolean }>();
+
+    for (const rf of revisionFiles) {
+      if (rf.server_only === 1) {
+        continue;
+      }
+
+      fileMap.set(rf.file_sha256, {
+        action: rf.action,
+        serverOnly: rf.server_only === 1,
+        file: {
+          sha256: rf.file_sha256,
+          fileName: rf.file_name,
+          fileType: rf.file_type,
+          relativePath: rf.relative_path,
+          fileSize: rf.file_size,
+        },
+      });
+    }
+
+    const filesToAdd: Array<any> = [];
+    const filesToRemove: Array<string> = [];
+
+    for (const [sha256, data] of fileMap) {
+      if (data.action === 'add') {
+        filesToAdd.push(data.file);
+      } else if (data.action === 'remove') {
+        filesToRemove.push(data.file.relativePath);
+      }
+    }
+
+    return {
+      upToDate: false,
+      latestRevision,
+      filesToAdd,
+      filesToRemove,
+    };
+  }
+
+  async createSyncZip(filesToAdd: Array<{ sha256: string; relativePath: string }>): Promise<Buffer> {
+    const zip = new AdmZip();
+
+    for (const file of filesToAdd) {
+      const sourcePath = this.getPackFile(file.sha256);
+      if (sourcePath && fs.existsSync(sourcePath)) {
+        zip.addLocalFile(sourcePath, path.dirname(file.relativePath), path.basename(file.relativePath));
+      }
+    }
+
+    return zip.toBuffer();
   }
 }

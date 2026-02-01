@@ -108,3 +108,38 @@ func MakeAuthenticatedGetRequest(url string) ([]byte, error) {
 
 	return io.ReadAll(resp.Body)
 }
+
+func MakeAuthenticatedDeleteRequest(url string) ([]byte, error) {
+	token := GetToken()
+	if token == "" {
+		return nil, http.ErrNotSupported
+	}
+
+	baseUrl := GetServerUrl()
+	req, err := http.NewRequest("DELETE", baseUrl+url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	return io.ReadAll(resp.Body)
+}
+
+func MakeGetRequest(url string) (*http.Response, error) {
+	baseUrl := GetServerUrl()
+	req, err := http.NewRequest("GET", baseUrl+url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	client := &http.Client{}
+	return client.Do(req)
+}

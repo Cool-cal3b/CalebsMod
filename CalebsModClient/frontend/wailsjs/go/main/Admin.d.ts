@@ -6,6 +6,8 @@ export function AdminKeyIsSet():Promise<boolean>;
 
 export function ClearAdminKey():Promise<void>;
 
+export function DeleteAllFiles():Promise<void>;
+
 export function GetManifest():Promise<Array<go_services.PackFileDto>>;
 
 export function GetServerStatus():Promise<go_services.ServerStatusResponse>;
@@ -15,6 +17,8 @@ export function GetToken():Promise<string>;
 export function IsLoggedIn():Promise<boolean>;
 
 export function Login():Promise<void>;
+
+export function SelectAndUploadModpackZip():Promise<go_services.ModpackUploadResponse>;
 
 export function SetAdminKey(arg1:string):Promise<void>;
 

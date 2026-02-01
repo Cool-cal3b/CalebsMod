@@ -1,15 +1,22 @@
 package main
 
 import (
+	"context"
 	go_services "CalebsModClient/go-services"
+	
+	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 type Admin struct {
-	ctx interface{}
+	ctx context.Context
 }
 
 func NewAdmin() *Admin {
 	return &Admin{}
+}
+
+func (a *Admin) startup(ctx context.Context) {
+	a.ctx = ctx
 }
 
 func (a *Admin) AdminKeyIsSet() bool {
@@ -60,6 +67,29 @@ func (a *Admin) UploadModpackZip(fileContent []byte, fileName string) (*go_servi
 	return go_services.UploadModpackZip(fileContent, fileName)
 }
 
+func (a *Admin) SelectAndUploadModpackZip() (*go_services.ModpackUploadResponse, error) {
+	filePath, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
+		Title: "Select Modpack ZIP",
+		Filters: []runtime.FileFilter{
+			{
+				DisplayName: "ZIP Files (*.zip)",
+				Pattern:     "*.zip",
+			},
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+	if filePath == "" {
+		return nil, nil
+	}
+	return go_services.UploadModpackZipFromPath(filePath)
+}
+
 func (a *Admin) GetManifest() ([]go_services.PackFileDto, error) {
 	return go_services.GetManifest()
+}
+
+func (a *Admin) DeleteAllFiles() error {
+	return go_services.DeleteAllFiles()
 }
