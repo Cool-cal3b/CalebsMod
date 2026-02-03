@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react';
 import { AdminKeyIsSet, IsLoggedIn, Login, SetAdminKey, ClearAdminKey, StartServer, StopServer, UpdateDns, GetServerStatus, SelectAndUploadModpackZip, DeleteAllFiles } from '../wailsjs/go/main/Admin';
 import { ServerStatus, MinecraftServerResponse, ServerStatusResponse } from './types/admin-types';
 import ConfirmModal from './components/ConfirmModal';
+import { useNavigate } from 'react-router-dom';
 
 function Admin() {
 	const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -18,6 +19,8 @@ function Admin() {
 	const [numberOfPlayers, setNumberOfPlayers] = useState<number | null>(null);
 	const [maxPlayers, setMaxPlayers] = useState<number | null>(null);
 	const [uploadProgress, setUploadProgress] = useState<string>('');
+
+	const navigate = useNavigate();
 
 	useEffect(() => {
 		checkAuthStatus();
@@ -327,14 +330,14 @@ function Admin() {
 
 						<div className="button-group">
 							<button className="mc-button">Add Mod by URL</button>
-						<button 
-							className="mc-button green" 
-							onClick={handleUploadModpackZip}
-							disabled={uploadProgress !== ''}
-						>
-							{uploadProgress ? uploadProgress : 'Upload Modpack Zip'}
-						</button>
-						<button className="mc-button">View All Mods</button>
+							<button 
+								className="mc-button green" 
+								onClick={handleUploadModpackZip}
+								disabled={uploadProgress !== ''}
+							>
+								{uploadProgress ? uploadProgress : 'Upload Modpack Zip'}
+							</button>
+							<button className="mc-button" onClick={() => navigate('/all-mods')}>View All Mods</button>
 							<button 
 								className="mc-button red" 
 								onClick={() => setShowDeleteAllModal(true)}

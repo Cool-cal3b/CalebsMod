@@ -5,6 +5,7 @@ import './style.css'
 import App from './App'
 import Admin from './Admin'
 import InstallLauncherPage from './InstallLauncher'
+import AllMods from './AllMods'
 
 const container = document.getElementById('root')
 
@@ -17,6 +18,7 @@ root.render(
                 <Route path="/" element={<App/>} />
                 <Route path="/admin" element={<Admin/>} />
                 <Route path="/install-launcher" element={<InstallLauncherPage/>} />
+                <Route path="/all-mods" element={<AllMods/>} />
             </Routes>
         </BrowserRouter>
     </React.StrictMode>

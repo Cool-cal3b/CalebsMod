@@ -32,5 +32,16 @@ interface ServerStatusResponse {
 	players: PlayersInfo;
 }
 
+interface SearchModsResponse {
+	foundMods: FoundMod[];
+}
+
+interface FoundMod {
+	sha256: string;
+	fileName: string;
+	clientOnly: boolean;
+	serverOnly: boolean;
+}
+
 export { ServerStatus };
-export type { MinecraftServerResponse, ServerStatusResponse };
+export type { MinecraftServerResponse, ServerStatusResponse, FoundMod, SearchModsResponse };

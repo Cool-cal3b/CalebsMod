@@ -166,6 +166,45 @@ func GetManifest() ([]PackFileDto, error) {
 	return files, nil
 }
 
+func GetAllFiles(search string) ([]PackFileDto, error) {
+	url := "/api/modpack/files"
+	if search != "" {
+		url += "?search=" + search
+	}
+
+	response, err := MakeAuthenticatedGetRequest(url)
+	if err != nil {
+		return nil, err
+	}
+
+	var files []PackFileDto
+	err = json.Unmarshal(response, &files)
+	if err != nil {
+		return nil, err
+	}
+
+	return files, nil
+}
+
+func UpdateFileFlags(sha256 string, serverOnly bool, clientOnly bool) error {
+	url := "/api/modpack/files/" + sha256
+	body, err := json.Marshal(map[string]bool{
+		"serverOnly": serverOnly,
+		"clientOnly": clientOnly,
+	})
+	if err != nil {
+		return err
+	}
+
+	_, err = MakeAuthenticatedPatchRequest(url, body)
+	return err
+}
+
+func CreateFullResync() error {
+	_, err := MakeAuthenticatedPostRequest("/api/modpack/resync", nil)
+	return err
+}
+
 func DeleteAllFiles() error {
 	_, err := MakeAuthenticatedDeleteRequest("/api/modpack/files")
 	return err
@@ -181,4 +220,6 @@ type PackFileDto struct {
 	ModId        string `json:"modId"`
 	ModVersion   string `json:"modVersion"`
 	Required     bool   `json:"required"`
+	ServerOnly   bool   `json:"serverOnly"`
+	ClientOnly   bool   `json:"clientOnly"`
 }

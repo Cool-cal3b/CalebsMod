@@ -146,18 +146,23 @@ export class ModpackService {
 
       const entryPath = entry.entryName.replace(/\\/g, '/');
       
-      let relevantPath = entryPath;
+      const normalized = entry.entryName.replace(/\\/g, '/');
+      let relevantPath = normalized;
+
+      if (relevantPath.includes('overrides/')) {
+        relevantPath = relevantPath.split('overrides/')[1];
+      }
+
       let serverOnly = false;
       let clientOnly = false;
 
-      if (entryPath.includes('overrides/')) {
-        relevantPath = entryPath.split('overrides/')[1];
-      }
-
-      if (entryPath.includes('.for-manual-install/')) {
-        relevantPath = entryPath.split('.for-manual-install/')[1];
+      if (relevantPath.includes('.for-manual-install/')) {
+        relevantPath = relevantPath.split('.for-manual-install/')[1];
         clientOnly = true;
+      } else if (relevantPath.match(/^(mods|config|thingpacks)\//)) {
+        serverOnly = true;
       } else if (entryPath.match(/^[^/]+\/(mods|config|thingpacks)\//)) {
+        relevantPath = entryPath.replace(/^[^/]+\//, ''); // <-- add this
         serverOnly = true;
       }
 
@@ -273,6 +278,24 @@ export class ModpackService {
     }));
   }
 
+  getServerManifest(): PackFileDto[] {
+    const files = this.db
+      .prepare('SELECT * FROM files WHERE client_only = 0')
+      .all() as any[];
+
+    return files.map((f) => ({
+      sha256: f.sha256,
+      fileName: f.file_name,
+      fileSize: f.file_size,
+      fileType: f.file_type,
+      relativePath: f.relative_path,
+      originalUrl: f.original_url,
+      modId: f.mod_id,
+      modVersion: f.mod_version,
+      required: f.required === 1,
+    }));
+  }
+
   getPackFile(sha256: string): string | null {
     const filePath = path.join(this.filesStorePath, sha256);
     return fs.existsSync(filePath) ? filePath : null;
@@ -283,6 +306,71 @@ export class ModpackService {
       .prepare('SELECT MAX(id) as latestRevision FROM revisions')
       .get() as { latestRevision: number | null };
     return result.latestRevision || 0;
+  }
+
+  updateFileFlags(sha256: string, serverOnly: boolean, clientOnly: boolean, user?: string) {
+    this.db
+      .prepare('UPDATE files SET server_only = ?, client_only = ? WHERE sha256 = ?')
+      .run(serverOnly ? 1 : 0, clientOnly ? 1 : 0, sha256);
+
+    this.db.logAudit('update_file_flags', 'file', sha256, user, {
+      serverOnly,
+      clientOnly,
+    });
+  }
+
+  async createFullResyncRevision(user?: string) {
+    const allFiles = this.db
+      .prepare('SELECT sha256 FROM files')
+      .all() as Array<{ sha256: string }>;
+
+    if (allFiles.length === 0) {
+      return { revisionId: 0, filesResynced: 0, message: 'No files to resync' };
+    }
+
+    const actions = [
+      ...allFiles.map(f => ({ sha256: f.sha256, action: 'remove' as const })),
+      ...allFiles.map(f => ({ sha256: f.sha256, action: 'add' as const })),
+    ];
+
+    const revisionId = this.createRevision(actions, user);
+
+    this.db.logAudit('full_resync', 'files', 'all', user, {
+      revisionId,
+      fileCount: allFiles.length,
+    });
+
+    return {
+      revisionId,
+      filesResynced: allFiles.length,
+      message: `Created full resync revision ${revisionId}`,
+    };
+  }
+
+  getAllFiles(search?: string): any[] {
+    let query = 'SELECT * FROM files';
+    const params: any[] = [];
+
+    if (search && search.trim()) {
+      query += ' WHERE file_name LIKE ?';
+      params.push(`%${search}%`);
+    }
+
+    query += ' ORDER BY file_name ASC LIMIT 100';
+
+    const files = this.db.prepare(query).all(...params) as any[];
+    console.log(`num files: ${files.length}`);
+
+    return files.map((f) => ({
+      sha256: f.sha256,
+      fileName: f.file_name,
+      fileSize: f.file_size,
+      fileType: f.file_type,
+      relativePath: f.relative_path,
+      serverOnly: f.server_only === 1,
+      clientOnly: f.client_only === 1,
+      required: f.required === 1,
+    }));
   }
 
   deleteAllFiles(user?: string) {

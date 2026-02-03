@@ -6,7 +6,11 @@ export function AdminKeyIsSet():Promise<boolean>;
 
 export function ClearAdminKey():Promise<void>;
 
+export function CreateFullResync():Promise<void>;
+
 export function DeleteAllFiles():Promise<void>;
+
+export function GetAllFiles(arg1:string):Promise<Array<go_services.PackFileDto>>;
 
 export function GetManifest():Promise<Array<go_services.PackFileDto>>;
 
@@ -27,5 +31,7 @@ export function StartServer():Promise<go_services.ServerStatus>;
 export function StopServer():Promise<go_services.ServerStatus>;
 
 export function UpdateDns():Promise<boolean>;
+
+export function UpdateFileFlags(arg1:string,arg2:boolean,arg3:boolean):Promise<void>;
 
 export function UploadModpackZip(arg1:Array<number>,arg2:string):Promise<go_services.ModpackUploadResponse>;

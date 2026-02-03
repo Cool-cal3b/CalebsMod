@@ -82,6 +82,8 @@ export namespace go_services {
 	    modId: string;
 	    modVersion: string;
 	    required: boolean;
+	    serverOnly: boolean;
+	    clientOnly: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new PackFileDto(source);
@@ -98,6 +100,8 @@ export namespace go_services {
 	        this.modId = source["modId"];
 	        this.modVersion = source["modVersion"];
 	        this.required = source["required"];
+	        this.serverOnly = source["serverOnly"];
+	        this.clientOnly = source["clientOnly"];
 	    }
 	}
 	export class PlayersInfo {

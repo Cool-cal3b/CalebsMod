@@ -90,6 +90,18 @@ func (a *Admin) GetManifest() ([]go_services.PackFileDto, error) {
 	return go_services.GetManifest()
 }
 
+func (a *Admin) GetAllFiles(search string) ([]go_services.PackFileDto, error) {
+	return go_services.GetAllFiles(search)
+}
+
+func (a *Admin) UpdateFileFlags(sha256 string, serverOnly bool, clientOnly bool) error {
+	return go_services.UpdateFileFlags(sha256, serverOnly, clientOnly)
+}
+
+func (a *Admin) CreateFullResync() error {
+	return go_services.CreateFullResync()
+}
+
 func (a *Admin) DeleteAllFiles() error {
 	return go_services.DeleteAllFiles()
 }

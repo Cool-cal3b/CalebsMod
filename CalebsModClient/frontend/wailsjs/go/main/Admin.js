@@ -10,8 +10,16 @@ export function ClearAdminKey() {
   return window['go']['main']['Admin']['ClearAdminKey']();
 }
 
+export function CreateFullResync() {
+  return window['go']['main']['Admin']['CreateFullResync']();
+}
+
 export function DeleteAllFiles() {
   return window['go']['main']['Admin']['DeleteAllFiles']();
+}
+
+export function GetAllFiles(arg1) {
+  return window['go']['main']['Admin']['GetAllFiles'](arg1);
 }
 
 export function GetManifest() {
@@ -52,6 +60,10 @@ export function StopServer() {
 
 export function UpdateDns() {
   return window['go']['main']['Admin']['UpdateDns']();
+}
+
+export function UpdateFileFlags(arg1, arg2, arg3) {
+  return window['go']['main']['Admin']['UpdateFileFlags'](arg1, arg2, arg3);
 }
 
 export function UploadModpackZip(arg1, arg2) {

@@ -3,8 +3,10 @@ import {
   Get,
   Post,
   Delete,
+  Patch,
   Param,
   Body,
+  Query,
   Res,
   UseInterceptors,
   UploadedFile,
@@ -72,37 +74,44 @@ export class ModpackController {
   }
 
   @Get('sync/:fromRevision')
-  async syncFromRevision(
-    @Param('fromRevision') fromRevision: string,
-    @Res() res: Response,
-  ) {
+  async syncFromRevision(@Param('fromRevision') fromRevision: string, @Res() res: Response) {
     const fromRevisionId = parseInt(fromRevision, 10);
     const syncData = await this.modpackService.getSyncData(fromRevisionId);
 
     if (syncData.upToDate) {
-      return res.json({
-        upToDate: true,
-        latestRevision: syncData.latestRevision,
-      });
+      return res.json({ upToDate: true, latestRevision: syncData.latestRevision });
     }
 
-    const zipBuffer = await this.modpackService.createSyncZip(
-      syncData.filesToAdd,
-    );
-
-    res.set({
-      'Content-Type': 'application/json',
-      'X-Latest-Revision': syncData.latestRevision.toString(),
-      'X-Files-To-Remove': JSON.stringify(syncData.filesToRemove),
-    });
-
-    res.json({
+    return res.json({
       upToDate: false,
       latestRevision: syncData.latestRevision,
       filesToAdd: syncData.filesToAdd,
       filesToRemove: syncData.filesToRemove,
-      zipData: zipBuffer.toString('base64'),
+
+      // give client a URL to fetch the zip
+      zipUrl: `/api/modpack/sync-zip/${fromRevisionId}`,
     });
+  }
+
+  @Get('sync-zip/:fromRevision')
+  async syncZip(@Param('fromRevision') fromRevision: string, @Res() res: Response) {
+    const fromRevisionId = parseInt(fromRevision, 10);
+    const syncData = await this.modpackService.getSyncData(fromRevisionId);
+
+    if (syncData.upToDate) return res.status(204).end();
+
+    const zipBuffer = await this.modpackService.createSyncZip(syncData.filesToAdd);
+
+    res.set({
+      'Content-Type': 'application/zip',
+      'Content-Disposition': `attachment; filename="calebsmod-sync-${fromRevisionId}-to-${syncData.latestRevision}.zip"`,
+      'X-Latest-Revision': String(syncData.latestRevision),
+      'X-Files-To-Remove': JSON.stringify(syncData.filesToRemove),
+      'Content-Length': String(zipBuffer.length),
+    });
+
+    console.log(`zipBuffer: ${zipBuffer.length}`);
+    return res.status(200).send(zipBuffer); // sends bytes, no base64
   }
 
   @Get('latest-revision')
@@ -116,5 +125,27 @@ export class ModpackController {
   @UseGuards(JwtAuthGuard)
   deleteAllFiles() {
     return this.modpackService.deleteAllFiles();
+  }
+
+  @Get('files')
+  @UseGuards(JwtAuthGuard)
+  getAllFiles(@Query('search') search?: string) {
+    return this.modpackService.getAllFiles(search);
+  }
+
+  @Patch('files/:sha256')
+  @UseGuards(JwtAuthGuard)
+  updateFileFlags(
+    @Param('sha256') sha256: string,
+    @Body() body: { serverOnly: boolean; clientOnly: boolean },
+  ) {
+    this.modpackService.updateFileFlags(sha256, body.serverOnly, body.clientOnly);
+    return { success: true };
+  }
+
+  @Post('resync')
+  @UseGuards(JwtAuthGuard)
+  createFullResync() {
+    return this.modpackService.createFullResyncRevision();
   }
 }

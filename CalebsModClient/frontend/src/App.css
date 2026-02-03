@@ -170,3 +170,75 @@
 .button-group .mc-button {
     width: 100%;
 }
+
+.files-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    margin-top: 1rem;
+}
+
+.file-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem;
+    transition: all 0.2s ease;
+}
+
+.file-item.server-only {
+    border-left: 4px solid #ff6b6b;
+}
+
+.file-item.client-only {
+    border-left: 4px solid #4dabf7;
+}
+
+.file-item.both {
+    border-left: 4px solid #51cf66;
+}
+
+.file-info {
+    flex: 1;
+    text-align: left;
+}
+
+.file-name {
+    font-weight: 600;
+    color: var(--mc-gold);
+    margin-bottom: 0.25rem;
+}
+
+.file-details {
+    display: flex;
+    gap: 1rem;
+    font-size: 0.85rem;
+    color: var(--mc-gray);
+}
+
+.file-controls {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.mc-button.small {
+    padding: 0.5rem 0.75rem;
+    font-size: 0.85rem;
+}
+
+.mc-button.blue {
+    background: #4dabf7;
+}
+
+.mc-button.blue:hover {
+    background: #339af0;
+}
+
+.success-message {
+    padding: 1rem;
+    background: rgba(81, 207, 102, 0.1);
+    border: 2px solid rgba(81, 207, 102, 0.3);
+    border-radius: 4px;
+    color: #51cf66;
+    margin-bottom: 1rem;
+}

@@ -3,7 +3,6 @@ package go_services
 import (
 	"archive/zip"
 	"bytes"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -148,6 +147,10 @@ func SyncMods() (bool, error) {
 		return false, fmt.Errorf("failed to fetch sync data: %w", err)
 	}
 
+	if syncData.LatestRevision == 0 && !syncData.UpToDate {
+		fmt.Println("Warning: server returned latestRevision=0; check server getLatestRevision() + JSON field names")
+	}
+
 	if syncData.UpToDate {
 		fmt.Println("Already up to date!")
 		return true, nil
@@ -165,9 +168,23 @@ func SyncMods() (bool, error) {
 	}
 
 	if len(syncData.FilesToAdd) > 0 {
-		if err := extractSyncZip(syncData.ZipData, minecraftPath); err != nil {
-			return false, fmt.Errorf("failed to extract files: %w", err)
+		if syncData.ZipUrl == "" {
+			return false, fmt.Errorf("server did not provide zipUrl")
 		}
+
+		tmpZipPath, err := downloadZipToTemp(syncData.ZipUrl)
+		if err != nil {
+			return false, fmt.Errorf("failed to download zip: %w", err)
+		}
+
+		if tmpZipPath != "" {
+			defer os.Remove(tmpZipPath)
+
+			if err := extractZipFile(tmpZipPath, minecraftPath); err != nil {
+				return false, fmt.Errorf("failed to extract files: %w", err)
+			}
+		}
+
 		fmt.Printf("Added %d files\n", len(syncData.FilesToAdd))
 	}
 
@@ -179,12 +196,128 @@ func SyncMods() (bool, error) {
 	return true, nil
 }
 
+func downloadZipToTemp(zipPath string) (string, error) {
+	fmt.Printf("Downloading zip from %s\n", zipPath)
+	resp, err := MakeGetRequest(zipPath)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNoContent {
+		return "", nil
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		b, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("zip download failed: %s: %s", resp.Status, string(b))
+	}
+
+	tmp, err := os.CreateTemp("", "calebsmod-sync-*.zip")
+	if err != nil {
+		return "", fmt.Errorf("failed to create temp zip file: %w", err)
+	}
+	tmpPath := tmp.Name()
+
+	// If anything fails, clean up
+	ok := false
+	defer func() {
+		_ = tmp.Close()
+		if !ok {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+
+	// Stream to disk
+	if _, err := io.Copy(tmp, resp.Body); err != nil {
+		return "", fmt.Errorf("failed to write zip to temp file: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return "", fmt.Errorf("failed to close temp zip file: %w", err)
+	}
+
+	ok = true
+	return tmpPath, nil
+}
+
+func extractZipFile(zipPath string, destDir string) error {
+	if zipPath == "" {
+		return nil
+	}
+
+	if err := os.MkdirAll(destDir, 0755); err != nil {
+		return fmt.Errorf("failed to create dest dir %s: %w", destDir, err)
+	}
+
+	zr, err := zip.OpenReader(zipPath)
+	if err != nil {
+		return fmt.Errorf("failed to open zip %s: %w", zipPath, err)
+	}
+	defer zr.Close()
+
+	base := filepath.Clean(destDir)
+	baseWithSep := base + string(os.PathSeparator)
+
+	for _, f := range zr.File {
+		// Skip dirs
+		if f.FileInfo().IsDir() {
+			continue
+		}
+
+		// zip-slip protection
+		outPath := filepath.Join(base, f.Name)
+		cleanOut := filepath.Clean(outPath)
+		if !strings.HasPrefix(cleanOut, baseWithSep) && cleanOut != base {
+			return fmt.Errorf("invalid zip path: %s", f.Name)
+		}
+
+		if err := os.MkdirAll(filepath.Dir(cleanOut), 0755); err != nil {
+			return fmt.Errorf("failed to create dir for %s: %w", cleanOut, err)
+		}
+
+		rc, err := f.Open()
+		if err != nil {
+			return fmt.Errorf("failed to open zip entry %s: %w", f.Name, err)
+		}
+
+		out, err := os.OpenFile(cleanOut, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, f.Mode())
+		if err != nil {
+			_ = rc.Close()
+			return fmt.Errorf("failed to create file %s: %w", cleanOut, err)
+		}
+
+		_, copyErr := io.Copy(out, rc)
+
+		closeErr := out.Close()
+		rcErr := rc.Close()
+
+		if copyErr != nil {
+			return fmt.Errorf("failed writing %s: %w", cleanOut, copyErr)
+		}
+		if closeErr != nil {
+			return fmt.Errorf("failed closing %s: %w", cleanOut, closeErr)
+		}
+		if rcErr != nil {
+			return fmt.Errorf("failed closing zip entry %s: %w", f.Name, rcErr)
+		}
+	}
+
+	return nil
+}
+
 type SyncResponse struct {
-	UpToDate       bool     `json:"upToDate"`
-	LatestRevision int      `json:"latestRevision"`
-	FilesToAdd     []File   `json:"filesToAdd"`
-	FilesToRemove  []string `json:"filesToRemove"`
-	ZipData        string   `json:"zipData"`
+	UpToDate       bool       `json:"upToDate"`
+	LatestRevision int        `json:"latestRevision"`
+	FilesToAdd     []SyncFile `json:"filesToAdd"`
+	FilesToRemove  []string   `json:"filesToRemove"`
+	ZipUrl         string     `json:"zipUrl"` // NEW
+}
+
+type SyncFile struct {
+	Sha256       string `json:"sha256"`
+	FileName     string `json:"fileName"`
+	FileType     string `json:"fileType"`
+	RelativePath string `json:"relativePath"`
+	FileSize     int64  `json:"fileSize"`
 }
 
 type File struct {
@@ -237,54 +370,6 @@ func fetchSyncData(fromRevision int) (*SyncResponse, error) {
 	}
 
 	return &syncResp, nil
-}
-
-func extractSyncZip(base64Data string, targetDir string) error {
-	zipData, err := base64.StdEncoding.DecodeString(base64Data)
-	if err != nil {
-		return fmt.Errorf("failed to decode zip data: %w", err)
-	}
-
-	zipReader, err := zip.NewReader(bytes.NewReader(zipData), int64(len(zipData)))
-	if err != nil {
-		return fmt.Errorf("failed to read zip: %w", err)
-	}
-
-	for _, file := range zipReader.File {
-		if file.FileInfo().IsDir() {
-			continue
-		}
-
-		targetPath := filepath.Join(targetDir, file.Name)
-		targetFileDir := filepath.Dir(targetPath)
-
-		if err := os.MkdirAll(targetFileDir, 0755); err != nil {
-			return fmt.Errorf("failed to create directory %s: %w", targetFileDir, err)
-		}
-
-		rc, err := file.Open()
-		if err != nil {
-			return fmt.Errorf("failed to open file in zip: %w", err)
-		}
-
-		outFile, err := os.Create(targetPath)
-		if err != nil {
-			rc.Close()
-			return fmt.Errorf("failed to create file %s: %w", targetPath, err)
-		}
-
-		_, err = io.Copy(outFile, rc)
-		outFile.Close()
-		rc.Close()
-
-		if err != nil {
-			return fmt.Errorf("failed to write file %s: %w", targetPath, err)
-		}
-
-		fmt.Printf("Extracted: %s\n", file.Name)
-	}
-
-	return nil
 }
 
 func addServerToServersFile(minecraftPath string) error {

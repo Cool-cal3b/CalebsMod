@@ -7,6 +7,7 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
+import { PackFileDto } from 'src/modpack/dto/manifest.dto';
 
 const CLOUDFLARE_DOMAIN = 'calebwash.com';
 const CLOUDFLARE_SUBDOMAIN = 'mc';
@@ -49,7 +50,7 @@ export class ServerService {
     const minecraftDataPath = process.env.MINECRAFT_DATA_PATH || './minecraft-data';
     const absoluteMinecraftPath = path.resolve(minecraftDataPath);
 
-    const manifest = this.modpackService.getManifest();
+    const manifest = this.modpackService.getServerManifest();
     
     if (manifest.length === 0) {
       console.log('No files to sync to Minecraft server');
@@ -84,6 +85,8 @@ export class ServerService {
         }
       }
     }
+
+    this.pruneModsNotInManifest(manifest, absoluteMinecraftPath);
 
     console.log('File sync complete');
   }
@@ -378,5 +381,26 @@ export class ServerService {
       : [];
 
     return { online, max, players };
+  }
+
+  private pruneModsNotInManifest(manifest: PackFileDto[], absoluteMinecraftPath: string) {
+    const expected = new Set(
+      manifest
+        .filter(f => f.relativePath.startsWith('mods/') && f.relativePath.endsWith('.jar'))
+        .map(f => path.normalize(path.join(absoluteMinecraftPath, f.relativePath)))
+    );
+  
+    const modsDir = path.join(absoluteMinecraftPath, 'mods');
+    if (!fs.existsSync(modsDir)) return;
+  
+    for (const name of fs.readdirSync(modsDir)) {
+      if (!name.endsWith('.jar')) continue;
+  
+      const fullPath = path.normalize(path.join(modsDir, name));
+      if (!expected.has(fullPath)) {
+        console.log(`Pruning extra mod: ${name}`);
+        fs.rmSync(fullPath, { force: true });
+      }
+    }
   }
 }
