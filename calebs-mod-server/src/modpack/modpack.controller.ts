@@ -8,10 +8,12 @@ import {
   Body,
   Query,
   Res,
+  Req,
   UseInterceptors,
   UploadedFile,
   UseGuards,
   NotFoundException,
+  BadRequestException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
@@ -119,6 +121,31 @@ export class ModpackController {
     return {
       latestRevision: this.modpackService.getLatestRevision(),
     };
+  }
+
+  @Get('revision-tracking')
+  @UseGuards(JwtAuthGuard)
+  getRevisionTrackingStatus() {
+    return this.modpackService.getRevisionTrackingStatus();
+  }
+
+  @Post('revision-tracking')
+  @UseGuards(JwtAuthGuard)
+  setRevisionTrackingStatus(
+    @Body() body: { paused: boolean; resetHistory?: boolean },
+    @Req() req: { user?: { username?: string } },
+  ) {
+    if (typeof body?.paused !== 'boolean') {
+      throw new BadRequestException('paused must be a boolean');
+    }
+    if (body.resetHistory !== undefined && typeof body.resetHistory !== 'boolean') {
+      throw new BadRequestException('resetHistory must be a boolean');
+    }
+    return this.modpackService.setRevisionTrackingPaused(
+      body.paused,
+      req.user?.username,
+      body.resetHistory ?? false,
+    );
   }
 
   @Delete('files')

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { GetAllFiles, UpdateFileFlags, CreateFullResync } from '../wailsjs/go/main/Admin';
+import { GetAllFiles, UpdateFileFlags, CreateFullResync, DeleteFile } from '../wailsjs/go/main/Admin';
 import { go_services } from '../wailsjs/go/models';
 import './App.css';
 
@@ -69,6 +69,35 @@ export default function AllMods() {
         return 'both';
     };
 
+    const handleDeleteFile = async (sha256: string, fileName: string) => {
+        if (!confirm(`Delete "${fileName}"? This removes it from disk and marks it for deletion on all clients.`)) return;
+        setLoading(true);
+        setMessage('');
+        try {
+            await DeleteFile(sha256);
+            setMessage(`Deleted ${fileName}. Clients will remove it on next sync.`);
+            await fetchFiles();
+        } catch (err) {
+            setMessage('Failed to delete: ' + (err as Error).message);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const copyServerMods = async () => {
+        const list = files.filter(f => !f.clientOnly).map(f => f.fileName).join('\n');
+        await navigator.clipboard.writeText(list);
+        setMessage(`Copied ${files.filter(f => !f.clientOnly).length} server mods to clipboard`);
+        setTimeout(() => setMessage(''), 2000);
+    };
+
+    const copyClientMods = async () => {
+        const list = files.filter(f => !f.serverOnly).map(f => f.fileName).join('\n');
+        await navigator.clipboard.writeText(list);
+        setMessage(`Copied ${files.filter(f => !f.serverOnly).length} client mods to clipboard`);
+        setTimeout(() => setMessage(''), 2000);
+    };
+
 	return (
 		<div id="Admin">
 			<h1>All Files</h1>
@@ -106,6 +135,15 @@ export default function AllMods() {
                     <span style={{ color: '#4dabf7', marginLeft: '10px' }}>🔵 Client Only</span>
                     <span style={{ color: '#51cf66', marginLeft: '10px' }}>🟢 Both</span>
                 </div>
+
+                <div style={{ display: 'flex', gap: '10px', marginBottom: '10px' }}>
+                    <button className="mc-button small" onClick={copyServerMods}>
+                        Copy Server Mods
+                    </button>
+                    <button className="mc-button small" onClick={copyClientMods}>
+                        Copy Client Mods
+                    </button>
+                </div>
             </div>
 
             <div className="files-list">
@@ -134,6 +172,13 @@ export default function AllMods() {
                                     onClick={() => toggleClientOnly(file.sha256)}
                                 >
                                     Client Only: {file.clientOnly ? '✓' : '✗'}
+                                </button>
+                                <button 
+                                    className="mc-button small red"
+                                    onClick={() => handleDeleteFile(file.sha256, file.fileName)}
+                                    disabled={loading}
+                                >
+                                    Delete
                                 </button>
                             </div>
                         </div>

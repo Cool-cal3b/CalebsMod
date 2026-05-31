@@ -30,7 +30,7 @@ $projectRoot = $PSScriptRoot
 $serverPath = Join-Path $projectRoot "calebs-mod-server"
 $pidFile = Join-Path $serverPath ".server.pid"
 $logFile = Join-Path $serverPath "server.log"
-$serverPort = 3000
+$serverPort = 31265
 
 function Show-Help {
     Write-Host "=== Caleb's Mod Server Manager ===" -ForegroundColor Cyan

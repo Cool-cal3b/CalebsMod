@@ -1,0 +1,115 @@
+---
+description: CalebsMod monorepo architecture, components, and external dependencies
+alwaysApply: true
+---
+
+# CalebsMod Project Overview
+
+Private modded Minecraft server for friends. Caleb runs the backend on his home PC; friends only receive a small bootstrapper exe that auto-updates and launches the full client.
+
+## Architecture
+
+```
+Friend's PC                          Caleb's PC (home server)
+┌─────────────────────┐              ┌──────────────────────────────────┐
+│ CalebsModBootstrapper│──HTTPS──────▶│ mc.calebwash.com (Caddy → :3000) │
+│  (distributed exe)   │              │  calebs-mod-server (NestJS API)   │
+└──────────┬──────────┘              │    ├─ modpack sync / whitelist     │
+           │ downloads client         │    ├─ Docker Minecraft (25565)    │
+           ▼                          │    └─ S3 presigned client URLs    │
+┌─────────────────────┐              └──────────────────────────────────┘
+│ CalebsModClient      │──HTTPS──────▶ (same API)
+│  (Wails + React)     │
+│  └─ PrismLauncher    │──TCP────────▶ mc.calebwash.com:25565
+└─────────────────────┘
+```
+
+## Components
+
+### `calebs-mod-bootstrapper/` — What friends receive
+
+- **Purpose**: Single small Go exe distributed to friends. Checks for client updates, downloads from S3 via the API, launches `CalebsModClient.exe`.
+- **Key file**: `calebs-mod-bootstrapper.go`
+- **Local install path**: `%LOCALAPPDATA%\CalebsMod\`
+- **Important**: Friends never get the Wails client directly — only this bootstrapper. Redistribute bootstrapper only when bootstrapper code changes; client updates are automatic.
+- **Build**: `.\build.ps1` → `dist\CalebsModBootstrapper.exe`
+
+### `CalebsModClient/` — Desktop launcher (auto-downloaded)
+
+- **Purpose**: Wails (Go) + React desktop app. Installs portable PrismLauncher, syncs mods from the API, launches Minecraft with auto-join via `--server` flag.
+- **Stack**: Go backend (`go-services/`, `app.go`, `admin.go`) + React frontend (`frontend/src/`)
+- **Key flows**:
+  - Install PrismLauncher → `%LOCALAPPDATA%\CalebsMod\PrismLauncher`
+  - Create "CalebsMod" instance (Forge 1.20.1)
+  - Sync mods via revision-based API (`/api/modpack/sync/:fromRevision`)
+  - Fetch server address from `/api/server/ip-and-port`, launch with `-s mc.calebwash.com`
+- **Admin panel**: JWT auth via stored admin secret; server start/stop, modpack upload, whitelist, DNS update
+- **Dev**: `wails dev` with `CALEBS_MOD_ENV=dev` → API at `http://localhost:3001`
+- **Prod API URL**: `https://mc.calebwash.com` (see `go-services/utils.go`)
+- **Build**: `wails build` → `build/bin/CalebsModClient.exe`
+
+### `calebs-mod-server/` — Control plane (runs on Caleb's PC)
+
+- **Purpose**: NestJS API managing modpack distribution, access whitelist, Minecraft Docker container, client release metadata, and Cloudflare DNS.
+- **Stack**: NestJS + SQLite + Dockerode + RCON
+- **Key modules**: `modpack/`, `server/`, `access/`, `auth/`, `docker/`, `rcon/`, `database/`
+- **Storage**: `storage/pack-files/` (SHA256-keyed), `data/calebs-mod.db` (includes `app_settings` for revision pause), `minecraft-data/` (Docker volume)
+- **Minecraft**: `itzg/minecraft-server` Docker image, Forge 1.20.1, ports 25565 + 25575 (RCON)
+- **Client version**: `CalebsModClientVersion.txt` — read by `/api/server/latest-client-release` to return version + S3 presigned URL
+- **Dev**: `CALEBS_MOD_ENV=dev` defaults to port **3001**; prod uses port **3000**
+- **Secrets**: `.env` (ADMIN_SECRET, JWT_SECRET, RCON_PASSWORD, S3 keys, Cloudflare tokens)
+
+### `my-mods/` — Custom Forge mods (reserved, empty)
+
+- Placeholder for future custom Forge mod development. Currently empty.
+- Mods distributed to friends are managed via modpack zip upload in the admin panel.
+
+## Root Scripts & Infrastructure
+
+| Script | Purpose |
+|--------|---------|
+| `start-dev.ps1` | Starts server (port 3001) + client in dev mode |
+| `upload-new-client-to-s3.ps1` | Builds client, bumps version, uploads zip to S3 |
+| `start_or_update_caddy.ps1` | Restarts Caddy reverse proxy at `C:\caddy` |
+
+## External Resources
+
+| Resource | Used by | Purpose |
+|----------|---------|---------|
+| **AWS S3** (`calebsmod-downloads`, `us-west-1`) | Server, bootstrapper | Client release zips at `client-releases/CalebsModClient-X.YY.zip` |
+| **Cloudflare DNS** | Server | Dynamic A record for `mc.calebwash.com` |
+| **Caddy** (`C:\caddy\Caddyfile`) | Prod infra | HTTPS reverse proxy to NestJS on port 3000 |
+| **PrismLauncher** (GitHub releases) | Client | Portable launcher download |
+| **Docker Desktop** | Server | Runs Minecraft container |
+| **Router port forwarding** | Prod infra | Ports **25565** (MC) and **3000** (API) |
+
+## Release Workflow (Client Updates)
+
+1. Make client changes → `wails build` (or let upload script build)
+2. Run `.\upload-new-client-to-s3.ps1` — bumps `CalebsModClientVersion.txt`, uploads zip to S3
+3. Commit version bump
+4. Friends re-run bootstrapper → auto-downloads new client
+
+## Modpack Sync (Brief)
+
+Admin uploads modpack zip → server parses client/server-only flags → files stored by SHA256 → revision tracking → clients sync deltas via `/api/modpack/sync/:fromRevision` → server syncs server-only files to Docker volume on start.
+
+### Revision tracking pause (pre-launch iteration)
+
+Use while iterating on the modpack before any clients are connected — avoids piling up useless revision history.
+
+- **Setting**: `app_settings.revision_tracking_paused` (`0` = active, `1` = paused), seeded on DB init.
+- **While paused**: uploads, deletes, and file updates still apply to `files` / `storage/pack-files/`; `createRevision()` is a no-op. Full resync returns without creating a revision.
+- **API** (JWT): `GET /api/modpack/revision-tracking` → `{ paused, latestRevision }`; `POST /api/modpack/revision-tracking` body `{ paused: boolean, resetHistory?: boolean }`.
+- **Unpause**: If no revisions exist, auto-creates one baseline revision (all current files as `add`). Clients at revision `0` sync to that snapshot.
+- **Unpause + reset**: `{ "paused": false, "resetHistory": true }` clears `revisions` / `revision_files`, then creates a fresh baseline from current files — use when handing out to first clients after heavy iteration.
+- **Typical flow**: pause → iterate (upload zip, tweak flags) → unpause with `resetHistory: true` when friends are about to connect → further changes create normal incremental revisions.
+
+## Dev vs Prod
+
+| | Dev | Prod |
+|---|-----|------|
+| Env var | `CALEBS_MOD_ENV=dev` | unset |
+| API URL | `http://localhost:3001` | `https://mc.calebwash.com` |
+| Minecraft | Docker (same) | Docker on Caleb's PC |
+| Client distribution | local build | S3 via bootstrapper |

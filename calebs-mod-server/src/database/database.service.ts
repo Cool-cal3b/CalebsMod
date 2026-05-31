@@ -52,6 +52,8 @@ export class DatabaseService implements OnModuleInit {
         revision_id INTEGER NOT NULL,
         file_sha256 TEXT NOT NULL,
         action TEXT NOT NULL,
+        relative_path TEXT,
+        server_only INTEGER,
         FOREIGN KEY (revision_id) REFERENCES revisions(id)
       );
 
@@ -82,6 +84,12 @@ export class DatabaseService implements OnModuleInit {
         expires_at INTEGER NOT NULL
       );
 
+      CREATE TABLE IF NOT EXISTS app_settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+
       CREATE INDEX IF NOT EXISTS idx_access_requests_status ON access_requests(status);
       CREATE INDEX IF NOT EXISTS idx_access_requests_username ON access_requests(username);
       CREATE INDEX IF NOT EXISTS idx_audit_log_created_at ON audit_log(created_at);
@@ -90,6 +98,18 @@ export class DatabaseService implements OnModuleInit {
     `);
 
     this.migrateExistingData();
+    this.migrateRevisionFiles();
+    this.seedDefaultSettings();
+  }
+
+  private migrateRevisionFiles() {
+    const columns = this.db
+      .prepare("PRAGMA table_info(revision_files)")
+      .all() as Array<{ name: string }>;
+    const hasRelativePath = columns.some(c => c.name === 'relative_path');
+    const hasServerOnly = columns.some(c => c.name === 'server_only');
+    if (!hasRelativePath) this.db.exec('ALTER TABLE revision_files ADD COLUMN relative_path TEXT');
+    if (!hasServerOnly) this.db.exec('ALTER TABLE revision_files ADD COLUMN server_only INTEGER');
   }
 
   private migrateExistingData() {
@@ -109,6 +129,17 @@ export class DatabaseService implements OnModuleInit {
         DROP TABLE IF EXISTS mods;
       `);
     }
+  }
+
+  private seedDefaultSettings() {
+    this.db
+      .prepare(
+        `
+        INSERT OR IGNORE INTO app_settings (key, value, updated_at)
+        VALUES ('revision_tracking_paused', '0', ?)
+      `,
+      )
+      .run(Date.now());
   }
 
   getDb(): Database.Database {

@@ -83,10 +83,10 @@ export class ServerService {
           console.log(`Updating ${file.fileName} (hash mismatch)`);
           fs.copyFileSync(sourceFilePath, targetPath);
         }
-      }
+      } 
     }
 
-    this.pruneModsNotInManifest(manifest, absoluteMinecraftPath);
+    this.pruneFilesNotInManifest(manifest, absoluteMinecraftPath);
 
     console.log('File sync complete');
   }
@@ -383,22 +383,32 @@ export class ServerService {
     return { online, max, players };
   }
 
-  private pruneModsNotInManifest(manifest: PackFileDto[], absoluteMinecraftPath: string) {
-    const expected = new Set(
-      manifest
-        .filter(f => f.relativePath.startsWith('mods/') && f.relativePath.endsWith('.jar'))
-        .map(f => path.normalize(path.join(absoluteMinecraftPath, f.relativePath)))
+  private pruneFilesNotInManifest(manifest: PackFileDto[], absoluteMinecraftPath: string) {
+    const expectedPaths = new Set(
+      manifest.map(f => path.normalize(path.join(absoluteMinecraftPath, f.relativePath)))
     );
-  
-    const modsDir = path.join(absoluteMinecraftPath, 'mods');
-    if (!fs.existsSync(modsDir)) return;
-  
-    for (const name of fs.readdirSync(modsDir)) {
-      if (!name.endsWith('.jar')) continue;
-  
-      const fullPath = path.normalize(path.join(modsDir, name));
-      if (!expected.has(fullPath)) {
-        console.log(`Pruning extra mod: ${name}`);
+
+    const dirsToPrune = ['mods', 'config', 'thingpacks', 'defaultconfigs', 'resourcepacks', 'shaderpacks'];
+    for (const dirName of dirsToPrune) {
+      const dirPath = path.join(absoluteMinecraftPath, dirName);
+      if (!fs.existsSync(dirPath)) continue;
+      this.pruneDirRecursive(dirPath, absoluteMinecraftPath, expectedPaths);
+    }
+  }
+
+  private pruneDirRecursive(dirPath: string, minecraftRoot: string, expectedPaths: Set<string>) {
+    for (const name of fs.readdirSync(dirPath)) {
+      const fullPath = path.join(dirPath, name);
+      const normalizedPath = path.normalize(fullPath);
+      const stat = fs.statSync(fullPath);
+
+      if (stat.isDirectory()) {
+        this.pruneDirRecursive(fullPath, minecraftRoot, expectedPaths);
+        if (fs.readdirSync(fullPath).length === 0) {
+          fs.rmdirSync(fullPath);
+        }
+      } else if (!expectedPaths.has(normalizedPath)) {
+        console.log(`Pruning (not in server manifest): ${path.relative(minecraftRoot, fullPath)}`);
         fs.rmSync(fullPath, { force: true });
       }
     }

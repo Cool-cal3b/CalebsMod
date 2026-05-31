@@ -50,6 +50,7 @@ func StopServer() (ServerStatus, string, error) {
 
 func UpdateDns() (bool, string, error) {
 	response, err := MakeAuthenticatedPostRequest("/api/server/update-dns", nil)
+	fmt.Println("Response: ", string(response))
 	if err != nil {
 		return false, "", err
 	}
@@ -207,6 +208,11 @@ func CreateFullResync() error {
 
 func DeleteAllFiles() error {
 	_, err := MakeAuthenticatedDeleteRequest("/api/modpack/files")
+	return err
+}
+
+func DeleteFile(sha256 string) error {
+	_, err := MakeAuthenticatedDeleteRequest("/api/modpack/files/" + sha256)
 	return err
 }
 

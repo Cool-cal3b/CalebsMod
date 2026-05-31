@@ -18,6 +18,10 @@ export function DeleteAllFiles() {
   return window['go']['main']['Admin']['DeleteAllFiles']();
 }
 
+export function DeleteFile(arg1) {
+  return window['go']['main']['Admin']['DeleteFile'](arg1);
+}
+
 export function GetAllFiles(arg1) {
   return window['go']['main']['Admin']['GetAllFiles'](arg1);
 }

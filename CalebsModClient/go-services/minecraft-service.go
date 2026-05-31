@@ -707,9 +707,9 @@ notes=CalebsMod Private Modpack
 					"uid": "net.minecraft"
 				}
 			],
-			"cachedVersion": "47.3.0",
+			"cachedVersion": "47.4.5",
 			"uid": "net.minecraftforge",
-			"version": "47.3.0"
+			"version": "47.4.5"
 		}
 	],
 	"formatVersion": 1

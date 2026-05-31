@@ -10,6 +10,8 @@ export function CreateFullResync():Promise<void>;
 
 export function DeleteAllFiles():Promise<void>;
 
+export function DeleteFile(arg1:string):Promise<void>;
+
 export function GetAllFiles(arg1:string):Promise<Array<go_services.PackFileDto>>;
 
 export function GetManifest():Promise<Array<go_services.PackFileDto>>;

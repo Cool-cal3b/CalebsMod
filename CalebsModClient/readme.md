@@ -30,7 +30,7 @@ Output: `build/bin/CalebsModClient.exe`
 2. Downloads PrismLauncher portable to `%LOCALAPPDATA%\CalebsMod\PrismLauncher`
 3. User logs into Microsoft account in PrismLauncher (one-time)
 4. User clicks "Launch Minecraft"
-5. App creates "CalebsMod" instance (Minecraft 1.20.1 + Forge 47.3.0)
+5. App creates "CalebsMod" instance (Minecraft 1.20.1 + Forge 47.4.5)
 6. App syncs mods to instance `.minecraft/mods/` folder
 7. Fetches server IP from API
 8. Launches: `prismlauncher.exe -d <path> -l CalebsMod -s <ip:port>`

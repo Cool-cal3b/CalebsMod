@@ -105,3 +105,7 @@ func (a *Admin) CreateFullResync() error {
 func (a *Admin) DeleteAllFiles() error {
 	return go_services.DeleteAllFiles()
 }
+
+func (a *Admin) DeleteFile(sha256 string) error {
+	return go_services.DeleteFile(sha256)
+}
