@@ -375,7 +375,18 @@ func extractZipFile(zipPath string, destDir string) error {
 			return fmt.Errorf("failed to open zip entry %s: %w", f.Name, err)
 		}
 
-		out, err := os.OpenFile(cleanOut, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, f.Mode())
+		// Never inherit the zip entry's mode. The server builds these zips with
+		// adm-zip, whose external attributes come back as read-only here, which
+		// left every synced file unwritable - Forge then dies with
+		// AccessDeniedException on config/fml.toml at launch.
+		if info, statErr := os.Stat(cleanOut); statErr == nil && info.Mode().Perm()&0200 == 0 {
+			if chmodErr := os.Chmod(cleanOut, 0644); chmodErr != nil {
+				_ = rc.Close()
+				return fmt.Errorf("failed to make %s writable: %w", cleanOut, chmodErr)
+			}
+		}
+
+		out, err := os.OpenFile(cleanOut, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0644)
 		if err != nil {
 			_ = rc.Close()
 			return fmt.Errorf("failed to create file %s: %w", cleanOut, err)
