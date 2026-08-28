@@ -10,12 +10,12 @@ export function DeleteLauncher() {
   return window['go']['main']['MinecraftService']['DeleteLauncher']();
 }
 
-export function ResetClient() {
-  return window['go']['main']['MinecraftService']['ResetClient']();
-}
-
 export function InstallLauncher() {
   return window['go']['main']['MinecraftService']['InstallLauncher']();
+}
+
+export function ResetClient() {
+  return window['go']['main']['MinecraftService']['ResetClient']();
 }
 
 export function StartMinecraftClient() {

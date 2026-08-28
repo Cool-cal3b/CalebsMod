@@ -5,9 +5,9 @@ export function CheckLauncherInstalled():Promise<boolean>;
 
 export function DeleteLauncher():Promise<boolean>;
 
-export function ResetClient():Promise<boolean>;
-
 export function InstallLauncher():Promise<boolean>;
+
+export function ResetClient():Promise<boolean>;
 
 export function StartMinecraftClient():Promise<boolean>;
 
