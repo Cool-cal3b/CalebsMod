@@ -222,17 +222,23 @@ export class ModpackService {
         relevantPath = relevantPath.split('overrides/')[1];
       }
 
-      let serverOnly = false;
+      // Nothing ingested from a pack is server-only. mods/, config/ and
+      // thingpacks/ all have to exist on the client too: thingpacks in
+      // particular define registry entries via JsonThings, so a client missing
+      // them fails the FML handshake with "Missing registry data". Marking them
+      // server-only here is what forced a manual flag-fixing pass after upload.
+      const serverOnly = false;
       let clientOnly = false;
 
       if (relevantPath.includes('.for-manual-install/')) {
         relevantPath = relevantPath.split('.for-manual-install/')[1];
         clientOnly = true;
-      } else if (relevantPath.match(/^(mods|config|thingpacks)\//)) {
-        serverOnly = true;
-      } else if (entryPath.match(/^[^/]+\/(mods|config|thingpacks)\//)) {
-        relevantPath = entryPath.replace(/^[^/]+\//, ''); // <-- add this
-        serverOnly = true;
+      } else if (
+        !relevantPath.match(/^(mods|config|thingpacks)\//) &&
+        entryPath.match(/^[^/]+\/(mods|config|thingpacks)\//)
+      ) {
+        // Pack zips usually nest everything under one top-level folder; strip it.
+        relevantPath = entryPath.replace(/^[^/]+\//, '');
       }
 
       const pathParts = relevantPath.split('/');
