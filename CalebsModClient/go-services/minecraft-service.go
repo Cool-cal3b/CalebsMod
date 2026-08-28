@@ -43,6 +43,11 @@ type ServersData struct {
 const (
 	PRISM_RELEASE_API = "https://api.github.com/repos/PrismLauncher/PrismLauncher/releases/latest"
 	INSTANCE_NAME     = "CalebsMod"
+
+	// Must match the server's FORGE_VERSION (calebs-mod-server/.env). A mismatch
+	// here is what makes the client and server refuse each other.
+	MINECRAFT_VERSION = "1.20.1"
+	FORGE_VERSION     = "47.4.10"
 )
 
 func StartMinecraftClient() (bool, error) {
@@ -115,6 +120,97 @@ func DeleteLauncher() (bool, error) {
 	}
 
 	return true, nil
+}
+
+// ResetClient wipes every piece of local client state and repopulates from a
+// full sync. Incremental revision syncs only apply the deltas since the client's
+// stored revision, so a pack that changed underneath them (or a sync that died
+// half-way) can leave stale mods, configs and datapacks behind that then fail the
+// FML handshake. This takes the client back to a known-good baseline.
+func ResetClient() (bool, error) {
+	prismPath, err := getPrismLauncherPath()
+	if err != nil {
+		return false, fmt.Errorf("failed to get PrismLauncher path: %w", err)
+	}
+
+	// Prism holds file locks on the instance while it is running.
+	if runtime.GOOS == "windows" {
+		if err := killProcessByName("prismlauncher.exe"); err != nil {
+			fmt.Printf("Warning: failed to kill PrismLauncher process: %v\n", err)
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+
+	instancePath := filepath.Join(prismPath, "instances", INSTANCE_NAME)
+
+	// Forge writes read-only configs (fml.toml), which make RemoveAll fail on Windows.
+	if err := clearReadOnlyAttributes(instancePath); err != nil {
+		fmt.Printf("Warning: failed to clear read-only attributes: %v\n", err)
+	}
+
+	if err := os.RemoveAll(instancePath); err != nil {
+		return false, fmt.Errorf("failed to remove instance: %w. Make sure PrismLauncher and Minecraft are closed", err)
+	}
+
+	// Drop local revision tracking so the next sync starts from revision 0.
+	if err := DeleteFileInLocalFolder("revision.txt"); err != nil {
+		return false, fmt.Errorf("failed to clear local revision: %w", err)
+	}
+
+	if err := createInstanceOnDisk(prismPath); err != nil {
+		return false, fmt.Errorf("failed to recreate instance: %w", err)
+	}
+
+	if _, err := SyncMods(); err != nil {
+		return false, fmt.Errorf("failed to repopulate mods: %w", err)
+	}
+
+	return true, nil
+}
+
+// createInstanceOnDisk writes the instance skeleton directly, rather than going
+// through Prism's import UI, so a reset needs no manual steps from the user.
+func createInstanceOnDisk(prismPath string) error {
+	instancePath := filepath.Join(prismPath, "instances", INSTANCE_NAME)
+
+	if err := os.MkdirAll(filepath.Join(instancePath, "minecraft"), 0755); err != nil {
+		return fmt.Errorf("failed to create instance directory: %w", err)
+	}
+
+	cfgPath := filepath.Join(instancePath, "instance.cfg")
+	if err := os.WriteFile(cfgPath, []byte(buildInstanceCfg()), 0644); err != nil {
+		return fmt.Errorf("failed to write instance.cfg: %w", err)
+	}
+
+	packPath := filepath.Join(instancePath, "mmc-pack.json")
+	if err := os.WriteFile(packPath, []byte(buildMmcPackJson()), 0644); err != nil {
+		return fmt.Errorf("failed to write mmc-pack.json: %w", err)
+	}
+
+	return nil
+}
+
+// clearReadOnlyAttributes makes every file under root writable so RemoveAll can
+// delete it. Missing paths are not an error - there may be nothing to reset yet.
+func clearReadOnlyAttributes(root string) error {
+	if _, err := os.Stat(root); os.IsNotExist(err) {
+		return nil
+	}
+
+	return filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		if info.IsDir() {
+			return nil
+		}
+		if info.Mode().Perm()&0200 == 0 {
+			if chmodErr := os.Chmod(path, info.Mode().Perm()|0200); chmodErr != nil {
+				fmt.Printf("Warning: failed to clear read-only on %s: %v\n", path, chmodErr)
+			}
+		}
+		return nil
+	})
 }
 
 func SyncMods() (bool, error) {
@@ -681,24 +777,36 @@ func createModpackZip(prismPath string) error {
 	zipWriter := zip.NewWriter(zipFile)
 	defer zipWriter.Close()
 
-	instanceCfg := `InstanceType=OneSix
-name=CalebsMod
-iconKey=default
-notes=CalebsMod Private Modpack
-`
-	if err := addFileToZip(zipWriter, "instance.cfg", []byte(instanceCfg)); err != nil {
+	if err := addFileToZip(zipWriter, "instance.cfg", []byte(buildInstanceCfg())); err != nil {
 		return err
 	}
 
-	mmcPackJson := `{
+	if err := addFileToZip(zipWriter, "mmc-pack.json", []byte(buildMmcPackJson())); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func buildInstanceCfg() string {
+	return `[General]
+InstanceType=OneSix
+name=` + INSTANCE_NAME + `
+iconKey=default
+notes=CalebsMod Private Modpack
+`
+}
+
+func buildMmcPackJson() string {
+	return fmt.Sprintf(`{
 	"components": [
 		{
 			"cachedName": "Minecraft",
 			"cachedRequires": [],
-			"cachedVersion": "1.20.1",
+			"cachedVersion": %[1]q,
 			"important": true,
 			"uid": "net.minecraft",
-			"version": "1.20.1"
+			"version": %[1]q
 		},
 		{
 			"cachedName": "Forge",
@@ -707,18 +815,13 @@ notes=CalebsMod Private Modpack
 					"uid": "net.minecraft"
 				}
 			],
-			"cachedVersion": "47.4.5",
+			"cachedVersion": %[2]q,
 			"uid": "net.minecraftforge",
-			"version": "47.4.5"
+			"version": %[2]q
 		}
 	],
 	"formatVersion": 1
-}`
-	if err := addFileToZip(zipWriter, "mmc-pack.json", []byte(mmcPackJson)); err != nil {
-		return err
-	}
-
-	return nil
+}`, MINECRAFT_VERSION, FORGE_VERSION)
 }
 
 func addFileToZip(zipWriter *zip.Writer, filename string, data []byte) error {

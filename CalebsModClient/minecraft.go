@@ -36,3 +36,7 @@ func (m *MinecraftService) DeleteLauncher() (bool, error) {
 func (m *MinecraftService) SyncMods() (bool, error) {
 	return go_services.SyncMods()
 }
+
+func (m *MinecraftService) ResetClient() (bool, error) {
+	return go_services.ResetClient()
+}

@@ -1,13 +1,16 @@
 import './App.css';
 import logo from './assets/images/CalebsModLogo.png';
 import { Link } from 'react-router-dom';
-import { StartMinecraftClient, CheckLauncherInstalled, DeleteLauncher, SyncMods } from '../wailsjs/go/main/MinecraftService';
+import { StartMinecraftClient, CheckLauncherInstalled, DeleteLauncher, SyncMods, ResetClient } from '../wailsjs/go/main/MinecraftService';
 import { useState, useEffect } from 'react';
+import ConfirmModal from './components/ConfirmModal';
 
 function App() {
 	const [launcherInstalled, setLauncherInstalled] = useState(false);
 	const [isInstalling, setIsInstalling] = useState(false);
 	const [isSyncing, setIsSyncing] = useState(false);
+	const [isResetting, setIsResetting] = useState(false);
+	const [showResetConfirm, setShowResetConfirm] = useState(false);
 
 	const syncMods = async () => {
 		if (isSyncing) return;
@@ -25,6 +28,24 @@ function App() {
 			alert("Failed to sync: " + error);
 		} finally {
 			setIsSyncing(false);
+		}
+	}
+
+	const resetClient = async () => {
+		setShowResetConfirm(false);
+		setIsResetting(true);
+		try {
+			const success = await ResetClient();
+			if (success) {
+				alert("Client reset complete! Everything was re-downloaded from scratch.");
+			} else {
+				alert("Reset failed. Please make sure PrismLauncher and Minecraft are closed.");
+			}
+		} catch (error) {
+			console.error("Failed to reset client:", error);
+			alert("Failed to reset client: " + error);
+		} finally {
+			setIsResetting(false);
 		}
 	}
 
@@ -91,8 +112,21 @@ function App() {
 					? <button className="mc-button large" onClick={deleteLauncher} disabled={isInstalling}>Delete Launcher</button>
 					: <Link className="mc-button large" to="/install-launcher">Install Launcher</Link>
 				}
+				{launcherInstalled && (
+					<button className="mc-button large red" onClick={() => setShowResetConfirm(true)} disabled={isResetting}>
+						{isResetting ? "Resetting... This may take a few minutes" : "Reset Client"}
+					</button>
+				)}
 				<Link className="mc-button admin-link" to="/admin">Admin Panel</Link>	
 		   </div>
+
+		   <ConfirmModal
+			   isOpen={showResetConfirm}
+			   title="Reset Client?"
+			   message="This deletes your CalebsMod instance and all local mod data, then re-downloads everything from scratch. Use this if the server rejects your client or mods seem out of sync. Your Microsoft login is kept. Close Minecraft first."
+			   onConfirm={resetClient}
+			   onCancel={() => setShowResetConfirm(false)}
+		   />
         </div>
     )
 }

@@ -47,6 +47,16 @@ function Show-Help {
     Write-Host ""
 }
 
+function Get-PortOwners {
+    $owners = @()
+    foreach ($line in (netstat -ano | Select-String ":$serverPort\s+.*LISTENING")) {
+        $parts = ($line.ToString().Trim() -split '\s+')
+        $owner = $parts[-1]
+        if ($owner -match '^\d+$' -and [int]$owner -gt 0) { $owners += [int]$owner }
+    }
+    return ($owners | Sort-Object -Unique)
+}
+
 function Get-ServerPID {
     if (Test-Path $pidFile) {
         $serverPid = Get-Content $pidFile -Raw
@@ -77,7 +87,7 @@ function Test-ServerRunning {
 
 function Get-ServerHealth {
     try {
-        $response = Invoke-WebRequest -Uri "http://localhost:$serverPort/api/server/status" -TimeoutSec 5 -ErrorAction Stop
+        $response = Invoke-WebRequest -Uri "http://localhost:$serverPort/api/server/status" -TimeoutSec 5 -UseBasicParsing -ErrorAction Stop
         return @{
             Healthy = $true
             StatusCode = $response.StatusCode
@@ -182,15 +192,26 @@ function Stop-Server {
     Write-Host "Stopping server (PID: $serverPid)..." -ForegroundColor Yellow
     
     try {
-        Stop-Process -Id $serverPid -Force -ErrorAction Stop
+        # Kill the whole tree: the recorded PID is the PowerShell wrapper, and
+        # npm spawns node as a grandchild that outlives it otherwise.
+        taskkill /PID $serverPid /T /F 2>&1 | Out-Null
         Start-Sleep -Seconds 1
-        
-        $stillRunning = Test-ServerRunning
-        if ($stillRunning) {
-            Write-Host "Warning: Process might still be running" -ForegroundColor Yellow
+
+        Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
+
+        # Belt and braces: anything still holding the port is an orphan from a previous run.
+        $orphans = Get-PortOwners
+        foreach ($orphanPid in $orphans) {
+            Write-Host "Killing orphaned process holding port ${serverPort}: $orphanPid" -ForegroundColor Yellow
+            Stop-Process -Id $orphanPid -Force -ErrorAction SilentlyContinue
+        }
+
+        if ($orphans.Count -gt 0) { Start-Sleep -Seconds 1 }
+
+        if ((Get-PortOwners).Count -gt 0) {
+            Write-Host "Warning: port $serverPort is still in use" -ForegroundColor Yellow
         }
         else {
-            Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
             Write-Host "Server stopped successfully" -ForegroundColor Green
         }
     }
