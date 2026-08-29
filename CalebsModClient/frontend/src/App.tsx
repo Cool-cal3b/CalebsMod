@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import { StartMinecraftClient, CheckLauncherInstalled, DeleteLauncher, SyncMods, ResetClient } from '../wailsjs/go/main/MinecraftService';
 import { useState, useEffect } from 'react';
 import ConfirmModal from './components/ConfirmModal';
+import { EventsOn, EventsOff } from '../wailsjs/runtime/runtime';
 
 function App() {
 	const [launcherInstalled, setLauncherInstalled] = useState(false);
@@ -11,6 +12,7 @@ function App() {
 	const [isSyncing, setIsSyncing] = useState(false);
 	const [isResetting, setIsResetting] = useState(false);
 	const [showResetConfirm, setShowResetConfirm] = useState(false);
+	const [progress, setProgress] = useState<{ phase: string; done: number; total: number } | null>(null);
 
 	const syncMods = async () => {
 		if (isSyncing) return;
@@ -46,6 +48,7 @@ function App() {
 			alert("Failed to reset client: " + error);
 		} finally {
 			setIsResetting(false);
+			setProgress(null);
 		}
 	}
 
@@ -78,6 +81,13 @@ function App() {
 	}
 
 	useEffect(() => {
+		EventsOn('sync:progress', (p: { phase: string; done: number; total: number }) => {
+			setProgress(p);
+		});
+		return () => EventsOff('sync:progress');
+	}, []);
+
+	useEffect(() => {
 		const checkLauncher = async () => {
 			try {
 				const installed = await CheckLauncherInstalled();
@@ -88,6 +98,15 @@ function App() {
 		}
 		checkLauncher();
 	}, []);
+
+	const pct = progress && progress.total > 0
+		? Math.floor((progress.done / progress.total) * 100)
+		: 0;
+	const resetLabel = progress
+		? (progress.phase === 'verifying'
+			? `Checking files... ${pct}%`
+			: `Downloading... ${pct}% (${progress.done}/${progress.total})`)
+		: "Resetting...";
 
 	return (
         <div id="App">
@@ -114,7 +133,7 @@ function App() {
 				}
 				{launcherInstalled && (
 					<button className="mc-button large red" onClick={() => setShowResetConfirm(true)} disabled={isResetting}>
-						{isResetting ? "Resetting... This may take a few minutes" : "Reset Client"}
+						{isResetting ? resetLabel : "Reset Client"}
 					</button>
 				)}
 				<Link className="mc-button admin-link" to="/admin">Admin Panel</Link>	

@@ -248,6 +248,20 @@ func SyncMods() (bool, error) {
 	}
 
 	if syncData.UpToDate {
+		// Being on the right revision does not prove the install is intact -
+		// files can be deleted or a sync can die after recording progress - so
+		// check against the full manifest and refetch anything missing.
+		manifest, err := FetchClientManifest()
+		if err != nil {
+			fmt.Printf("Warning: could not fetch manifest to verify install: %v\n", err)
+			fmt.Println("Already up to date!")
+			return true, nil
+		}
+
+		if err := SyncFilesVerified(minecraftPath, manifest, verifyMissing); err != nil {
+			return false, fmt.Errorf("failed to repair install: %w", err)
+		}
+
 		fmt.Println("Already up to date!")
 		return true, nil
 	}
@@ -264,24 +278,14 @@ func SyncMods() (bool, error) {
 	}
 
 	if len(syncData.FilesToAdd) > 0 {
-		if syncData.ZipUrl == "" {
-			return false, fmt.Errorf("server did not provide zipUrl")
+		// Verified, resumable, batched. The revision below is only recorded if
+		// every file arrived intact, so a half-finished sync is never mistaken
+		// for a complete install.
+		if err := SyncFilesVerified(minecraftPath, syncData.FilesToAdd, verifySize); err != nil {
+			return false, fmt.Errorf("failed to sync files: %w", err)
 		}
 
-		tmpZipPath, err := downloadZipToTemp(syncData.ZipUrl)
-		if err != nil {
-			return false, fmt.Errorf("failed to download zip: %w", err)
-		}
-
-		if tmpZipPath != "" {
-			defer os.Remove(tmpZipPath)
-
-			if err := extractZipFile(tmpZipPath, minecraftPath); err != nil {
-				return false, fmt.Errorf("failed to extract files: %w", err)
-			}
-		}
-
-		fmt.Printf("Added %d files\n", len(syncData.FilesToAdd))
+		fmt.Printf("Synced %d file(s)\n", len(syncData.FilesToAdd))
 	}
 
 	if err := saveCurrentRevision(syncData.LatestRevision); err != nil {
@@ -290,125 +294,6 @@ func SyncMods() (bool, error) {
 
 	fmt.Printf("Sync complete! Now at revision %d\n", syncData.LatestRevision)
 	return true, nil
-}
-
-func downloadZipToTemp(zipPath string) (string, error) {
-	fmt.Printf("Downloading zip from %s\n", zipPath)
-	resp, err := MakeGetRequest(zipPath)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusNoContent {
-		return "", nil
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		b, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("zip download failed: %s: %s", resp.Status, string(b))
-	}
-
-	tmp, err := os.CreateTemp("", "calebsmod-sync-*.zip")
-	if err != nil {
-		return "", fmt.Errorf("failed to create temp zip file: %w", err)
-	}
-	tmpPath := tmp.Name()
-
-	// If anything fails, clean up
-	ok := false
-	defer func() {
-		_ = tmp.Close()
-		if !ok {
-			_ = os.Remove(tmpPath)
-		}
-	}()
-
-	// Stream to disk
-	if _, err := io.Copy(tmp, resp.Body); err != nil {
-		return "", fmt.Errorf("failed to write zip to temp file: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		return "", fmt.Errorf("failed to close temp zip file: %w", err)
-	}
-
-	ok = true
-	return tmpPath, nil
-}
-
-func extractZipFile(zipPath string, destDir string) error {
-	if zipPath == "" {
-		return nil
-	}
-
-	if err := os.MkdirAll(destDir, 0755); err != nil {
-		return fmt.Errorf("failed to create dest dir %s: %w", destDir, err)
-	}
-
-	zr, err := zip.OpenReader(zipPath)
-	if err != nil {
-		return fmt.Errorf("failed to open zip %s: %w", zipPath, err)
-	}
-	defer zr.Close()
-
-	base := filepath.Clean(destDir)
-	baseWithSep := base + string(os.PathSeparator)
-
-	for _, f := range zr.File {
-		// Skip dirs
-		if f.FileInfo().IsDir() {
-			continue
-		}
-
-		// zip-slip protection
-		outPath := filepath.Join(base, f.Name)
-		cleanOut := filepath.Clean(outPath)
-		if !strings.HasPrefix(cleanOut, baseWithSep) && cleanOut != base {
-			return fmt.Errorf("invalid zip path: %s", f.Name)
-		}
-
-		if err := os.MkdirAll(filepath.Dir(cleanOut), 0755); err != nil {
-			return fmt.Errorf("failed to create dir for %s: %w", cleanOut, err)
-		}
-
-		rc, err := f.Open()
-		if err != nil {
-			return fmt.Errorf("failed to open zip entry %s: %w", f.Name, err)
-		}
-
-		// Never inherit the zip entry's mode. The server builds these zips with
-		// adm-zip, whose external attributes come back as read-only here, which
-		// left every synced file unwritable - Forge then dies with
-		// AccessDeniedException on config/fml.toml at launch.
-		if info, statErr := os.Stat(cleanOut); statErr == nil && info.Mode().Perm()&0200 == 0 {
-			if chmodErr := os.Chmod(cleanOut, 0644); chmodErr != nil {
-				_ = rc.Close()
-				return fmt.Errorf("failed to make %s writable: %w", cleanOut, chmodErr)
-			}
-		}
-
-		out, err := os.OpenFile(cleanOut, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0644)
-		if err != nil {
-			_ = rc.Close()
-			return fmt.Errorf("failed to create file %s: %w", cleanOut, err)
-		}
-
-		_, copyErr := io.Copy(out, rc)
-
-		closeErr := out.Close()
-		rcErr := rc.Close()
-
-		if copyErr != nil {
-			return fmt.Errorf("failed writing %s: %w", cleanOut, copyErr)
-		}
-		if closeErr != nil {
-			return fmt.Errorf("failed closing %s: %w", cleanOut, closeErr)
-		}
-		if rcErr != nil {
-			return fmt.Errorf("failed closing zip entry %s: %w", f.Name, rcErr)
-		}
-	}
-
-	return nil
 }
 
 type SyncResponse struct {

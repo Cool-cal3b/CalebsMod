@@ -3,6 +3,8 @@ package main
 import (
 	go_services "CalebsModClient/go-services"
 	"context"
+
+	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 type MinecraftService struct {
@@ -15,6 +17,12 @@ func NewMinecraftService() *MinecraftService {
 
 func (m *MinecraftService) startup(ctx context.Context) {
 	m.ctx = ctx
+
+	// Surface sync progress to the UI; a 400MB pack behind a bare spinner is
+	// how a half-finished sync gets mistaken for a finished one.
+	go_services.SetSyncProgressHandler(func(p go_services.SyncProgress) {
+		runtime.EventsEmit(ctx, "sync:progress", p)
+	})
 }
 
 func (m *MinecraftService) StartMinecraftClient() (bool, error) {

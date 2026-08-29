@@ -28,6 +28,7 @@ func main() {
 		OnStartup: func(ctx context.Context) {
 			app.startup(ctx)
 			admin.startup(ctx)
+			minecraft.startup(ctx)
 		},
 		Bind: []interface{}{
 			app,
