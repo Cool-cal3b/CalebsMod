@@ -48,3 +48,15 @@ func (m *MinecraftService) SyncMods() (bool, error) {
 func (m *MinecraftService) ResetClient() (bool, error) {
 	return go_services.ResetClient()
 }
+
+func (m *MinecraftService) GetClientStatus() (go_services.ClientStatus, error) {
+	return go_services.GetClientStatus()
+}
+
+func (m *MinecraftService) GetServerStatus() (go_services.ServerStatusResponse, error) {
+	return go_services.GetPublicServerStatus()
+}
+
+func (m *MinecraftService) GetClientVersion() string {
+	return go_services.GetClientVersion()
+}

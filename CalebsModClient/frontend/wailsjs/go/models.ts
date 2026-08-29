@@ -1,5 +1,35 @@
 export namespace go_services {
 	
+	export class ClientStatus {
+	    launcherInstalled: boolean;
+	    instanceExists: boolean;
+	    serverInConfig: boolean;
+	    filesExpected: number;
+	    filesMissing: number;
+	    modsExpected: number;
+	    modsMissing: number;
+	    missingExamples: string[];
+	    needsSync: boolean;
+	    manifestError?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ClientStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.launcherInstalled = source["launcherInstalled"];
+	        this.instanceExists = source["instanceExists"];
+	        this.serverInConfig = source["serverInConfig"];
+	        this.filesExpected = source["filesExpected"];
+	        this.filesMissing = source["filesMissing"];
+	        this.modsExpected = source["modsExpected"];
+	        this.modsMissing = source["modsMissing"];
+	        this.missingExamples = source["missingExamples"];
+	        this.needsSync = source["needsSync"];
+	        this.manifestError = source["manifestError"];
+	    }
+	}
 	export class DockerStatus {
 	    exists: boolean;
 	    running: boolean;

@@ -367,8 +367,8 @@ func fetchSyncData(fromRevision int) (*SyncResponse, error) {
 func addServerToServersFile(minecraftPath string) error {
 	serversFilePath := filepath.Join(minecraftPath, "servers.dat")
 
-	serverAddress := "mc.calebwash.com"
-	serverName := "Caleb's Mod Server"
+	serverAddress := SERVER_CONFIG_ADDRESS
+	serverName := SERVER_CONFIG_NAME
 
 	servers, err := readServersFile(serversFilePath)
 	if err != nil {
