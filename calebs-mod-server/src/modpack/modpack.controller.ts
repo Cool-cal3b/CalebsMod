@@ -17,7 +17,7 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
-import { ModpackService } from './modpack.service';
+import { ModpackService, SHA256_PATTERN, MAX_BATCH_FILES } from './modpack.service';
 import { AddModDto, CreatePackDto, UpdatePackDto } from './dto/pack.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { diskStorage } from 'multer';
@@ -93,6 +93,38 @@ export class ModpackController {
       // give client a URL to fetch the zip
       zipUrl: `/api/modpack/sync-zip/${fromRevisionId}`,
     });
+  }
+
+  @Post('batch-zip')
+  async batchZip(@Body() body: { sha256s?: string[] }, @Res() res: Response) {
+    const sha256s = Array.isArray(body?.sha256s) ? body.sha256s : null;
+
+    if (!sha256s || sha256s.length === 0) {
+      throw new BadRequestException('sha256s must be a non-empty array');
+    }
+
+    // Bounds the zip the server builds in memory, and keeps the request body
+    // under the default JSON limit.
+    if (sha256s.length > MAX_BATCH_FILES) {
+      throw new BadRequestException(
+        `batch too large: ${sha256s.length} (max ${MAX_BATCH_FILES})`,
+      );
+    }
+
+    for (const sha256 of sha256s) {
+      if (typeof sha256 !== 'string' || !SHA256_PATTERN.test(sha256)) {
+        throw new BadRequestException(`invalid sha256: ${String(sha256)}`);
+      }
+    }
+
+    const zipBuffer = await this.modpackService.createBatchZip(sha256s);
+
+    res.set({
+      'Content-Type': 'application/zip',
+      'Content-Length': String(zipBuffer.length),
+    });
+
+    return res.status(200).send(zipBuffer);
   }
 
   @Get('sync-zip/:fromRevision')

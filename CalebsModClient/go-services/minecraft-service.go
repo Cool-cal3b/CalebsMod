@@ -43,6 +43,11 @@ type ServersData struct {
 const (
 	PRISM_RELEASE_API = "https://api.github.com/repos/PrismLauncher/PrismLauncher/releases/latest"
 	INSTANCE_NAME     = "CalebsMod"
+
+	// Must match the server's FORGE_VERSION (calebs-mod-server/.env). A mismatch
+	// here is what makes the client and server refuse each other.
+	MINECRAFT_VERSION = "1.20.1"
+	FORGE_VERSION     = "47.4.10"
 )
 
 func StartMinecraftClient() (bool, error) {
@@ -117,6 +122,97 @@ func DeleteLauncher() (bool, error) {
 	return true, nil
 }
 
+// ResetClient wipes every piece of local client state and repopulates from a
+// full sync. Incremental revision syncs only apply the deltas since the client's
+// stored revision, so a pack that changed underneath them (or a sync that died
+// half-way) can leave stale mods, configs and datapacks behind that then fail the
+// FML handshake. This takes the client back to a known-good baseline.
+func ResetClient() (bool, error) {
+	prismPath, err := getPrismLauncherPath()
+	if err != nil {
+		return false, fmt.Errorf("failed to get PrismLauncher path: %w", err)
+	}
+
+	// Prism holds file locks on the instance while it is running.
+	if runtime.GOOS == "windows" {
+		if err := killProcessByName("prismlauncher.exe"); err != nil {
+			fmt.Printf("Warning: failed to kill PrismLauncher process: %v\n", err)
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+
+	instancePath := filepath.Join(prismPath, "instances", INSTANCE_NAME)
+
+	// Forge writes read-only configs (fml.toml), which make RemoveAll fail on Windows.
+	if err := clearReadOnlyAttributes(instancePath); err != nil {
+		fmt.Printf("Warning: failed to clear read-only attributes: %v\n", err)
+	}
+
+	if err := os.RemoveAll(instancePath); err != nil {
+		return false, fmt.Errorf("failed to remove instance: %w. Make sure PrismLauncher and Minecraft are closed", err)
+	}
+
+	// Drop local revision tracking so the next sync starts from revision 0.
+	if err := DeleteFileInLocalFolder("revision.txt"); err != nil {
+		return false, fmt.Errorf("failed to clear local revision: %w", err)
+	}
+
+	if err := createInstanceOnDisk(prismPath); err != nil {
+		return false, fmt.Errorf("failed to recreate instance: %w", err)
+	}
+
+	if _, err := SyncMods(); err != nil {
+		return false, fmt.Errorf("failed to repopulate mods: %w", err)
+	}
+
+	return true, nil
+}
+
+// createInstanceOnDisk writes the instance skeleton directly, rather than going
+// through Prism's import UI, so a reset needs no manual steps from the user.
+func createInstanceOnDisk(prismPath string) error {
+	instancePath := filepath.Join(prismPath, "instances", INSTANCE_NAME)
+
+	if err := os.MkdirAll(filepath.Join(instancePath, "minecraft"), 0755); err != nil {
+		return fmt.Errorf("failed to create instance directory: %w", err)
+	}
+
+	cfgPath := filepath.Join(instancePath, "instance.cfg")
+	if err := os.WriteFile(cfgPath, []byte(buildInstanceCfg()), 0644); err != nil {
+		return fmt.Errorf("failed to write instance.cfg: %w", err)
+	}
+
+	packPath := filepath.Join(instancePath, "mmc-pack.json")
+	if err := os.WriteFile(packPath, []byte(buildMmcPackJson()), 0644); err != nil {
+		return fmt.Errorf("failed to write mmc-pack.json: %w", err)
+	}
+
+	return nil
+}
+
+// clearReadOnlyAttributes makes every file under root writable so RemoveAll can
+// delete it. Missing paths are not an error - there may be nothing to reset yet.
+func clearReadOnlyAttributes(root string) error {
+	if _, err := os.Stat(root); os.IsNotExist(err) {
+		return nil
+	}
+
+	return filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		if info.IsDir() {
+			return nil
+		}
+		if info.Mode().Perm()&0200 == 0 {
+			if chmodErr := os.Chmod(path, info.Mode().Perm()|0200); chmodErr != nil {
+				fmt.Printf("Warning: failed to clear read-only on %s: %v\n", path, chmodErr)
+			}
+		}
+		return nil
+	})
+}
+
 func SyncMods() (bool, error) {
 	prismPath, err := getPrismLauncherPath()
 	if err != nil {
@@ -152,6 +248,20 @@ func SyncMods() (bool, error) {
 	}
 
 	if syncData.UpToDate {
+		// Being on the right revision does not prove the install is intact -
+		// files can be deleted or a sync can die after recording progress - so
+		// check against the full manifest and refetch anything missing.
+		manifest, err := FetchClientManifest()
+		if err != nil {
+			fmt.Printf("Warning: could not fetch manifest to verify install: %v\n", err)
+			fmt.Println("Already up to date!")
+			return true, nil
+		}
+
+		if err := SyncFilesVerified(minecraftPath, manifest, verifyMissing); err != nil {
+			return false, fmt.Errorf("failed to repair install: %w", err)
+		}
+
 		fmt.Println("Already up to date!")
 		return true, nil
 	}
@@ -168,24 +278,14 @@ func SyncMods() (bool, error) {
 	}
 
 	if len(syncData.FilesToAdd) > 0 {
-		if syncData.ZipUrl == "" {
-			return false, fmt.Errorf("server did not provide zipUrl")
+		// Verified, resumable, batched. The revision below is only recorded if
+		// every file arrived intact, so a half-finished sync is never mistaken
+		// for a complete install.
+		if err := SyncFilesVerified(minecraftPath, syncData.FilesToAdd, verifySize); err != nil {
+			return false, fmt.Errorf("failed to sync files: %w", err)
 		}
 
-		tmpZipPath, err := downloadZipToTemp(syncData.ZipUrl)
-		if err != nil {
-			return false, fmt.Errorf("failed to download zip: %w", err)
-		}
-
-		if tmpZipPath != "" {
-			defer os.Remove(tmpZipPath)
-
-			if err := extractZipFile(tmpZipPath, minecraftPath); err != nil {
-				return false, fmt.Errorf("failed to extract files: %w", err)
-			}
-		}
-
-		fmt.Printf("Added %d files\n", len(syncData.FilesToAdd))
+		fmt.Printf("Synced %d file(s)\n", len(syncData.FilesToAdd))
 	}
 
 	if err := saveCurrentRevision(syncData.LatestRevision); err != nil {
@@ -194,114 +294,6 @@ func SyncMods() (bool, error) {
 
 	fmt.Printf("Sync complete! Now at revision %d\n", syncData.LatestRevision)
 	return true, nil
-}
-
-func downloadZipToTemp(zipPath string) (string, error) {
-	fmt.Printf("Downloading zip from %s\n", zipPath)
-	resp, err := MakeGetRequest(zipPath)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusNoContent {
-		return "", nil
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		b, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("zip download failed: %s: %s", resp.Status, string(b))
-	}
-
-	tmp, err := os.CreateTemp("", "calebsmod-sync-*.zip")
-	if err != nil {
-		return "", fmt.Errorf("failed to create temp zip file: %w", err)
-	}
-	tmpPath := tmp.Name()
-
-	// If anything fails, clean up
-	ok := false
-	defer func() {
-		_ = tmp.Close()
-		if !ok {
-			_ = os.Remove(tmpPath)
-		}
-	}()
-
-	// Stream to disk
-	if _, err := io.Copy(tmp, resp.Body); err != nil {
-		return "", fmt.Errorf("failed to write zip to temp file: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		return "", fmt.Errorf("failed to close temp zip file: %w", err)
-	}
-
-	ok = true
-	return tmpPath, nil
-}
-
-func extractZipFile(zipPath string, destDir string) error {
-	if zipPath == "" {
-		return nil
-	}
-
-	if err := os.MkdirAll(destDir, 0755); err != nil {
-		return fmt.Errorf("failed to create dest dir %s: %w", destDir, err)
-	}
-
-	zr, err := zip.OpenReader(zipPath)
-	if err != nil {
-		return fmt.Errorf("failed to open zip %s: %w", zipPath, err)
-	}
-	defer zr.Close()
-
-	base := filepath.Clean(destDir)
-	baseWithSep := base + string(os.PathSeparator)
-
-	for _, f := range zr.File {
-		// Skip dirs
-		if f.FileInfo().IsDir() {
-			continue
-		}
-
-		// zip-slip protection
-		outPath := filepath.Join(base, f.Name)
-		cleanOut := filepath.Clean(outPath)
-		if !strings.HasPrefix(cleanOut, baseWithSep) && cleanOut != base {
-			return fmt.Errorf("invalid zip path: %s", f.Name)
-		}
-
-		if err := os.MkdirAll(filepath.Dir(cleanOut), 0755); err != nil {
-			return fmt.Errorf("failed to create dir for %s: %w", cleanOut, err)
-		}
-
-		rc, err := f.Open()
-		if err != nil {
-			return fmt.Errorf("failed to open zip entry %s: %w", f.Name, err)
-		}
-
-		out, err := os.OpenFile(cleanOut, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, f.Mode())
-		if err != nil {
-			_ = rc.Close()
-			return fmt.Errorf("failed to create file %s: %w", cleanOut, err)
-		}
-
-		_, copyErr := io.Copy(out, rc)
-
-		closeErr := out.Close()
-		rcErr := rc.Close()
-
-		if copyErr != nil {
-			return fmt.Errorf("failed writing %s: %w", cleanOut, copyErr)
-		}
-		if closeErr != nil {
-			return fmt.Errorf("failed closing %s: %w", cleanOut, closeErr)
-		}
-		if rcErr != nil {
-			return fmt.Errorf("failed closing zip entry %s: %w", f.Name, rcErr)
-		}
-	}
-
-	return nil
 }
 
 type SyncResponse struct {
@@ -375,8 +367,8 @@ func fetchSyncData(fromRevision int) (*SyncResponse, error) {
 func addServerToServersFile(minecraftPath string) error {
 	serversFilePath := filepath.Join(minecraftPath, "servers.dat")
 
-	serverAddress := "mc.calebwash.com"
-	serverName := "Caleb's Mod Server"
+	serverAddress := SERVER_CONFIG_ADDRESS
+	serverName := SERVER_CONFIG_NAME
 
 	servers, err := readServersFile(serversFilePath)
 	if err != nil {
@@ -681,24 +673,36 @@ func createModpackZip(prismPath string) error {
 	zipWriter := zip.NewWriter(zipFile)
 	defer zipWriter.Close()
 
-	instanceCfg := `InstanceType=OneSix
-name=CalebsMod
-iconKey=default
-notes=CalebsMod Private Modpack
-`
-	if err := addFileToZip(zipWriter, "instance.cfg", []byte(instanceCfg)); err != nil {
+	if err := addFileToZip(zipWriter, "instance.cfg", []byte(buildInstanceCfg())); err != nil {
 		return err
 	}
 
-	mmcPackJson := `{
+	if err := addFileToZip(zipWriter, "mmc-pack.json", []byte(buildMmcPackJson())); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func buildInstanceCfg() string {
+	return `[General]
+InstanceType=OneSix
+name=` + INSTANCE_NAME + `
+iconKey=default
+notes=CalebsMod Private Modpack
+`
+}
+
+func buildMmcPackJson() string {
+	return fmt.Sprintf(`{
 	"components": [
 		{
 			"cachedName": "Minecraft",
 			"cachedRequires": [],
-			"cachedVersion": "1.20.1",
+			"cachedVersion": %[1]q,
 			"important": true,
 			"uid": "net.minecraft",
-			"version": "1.20.1"
+			"version": %[1]q
 		},
 		{
 			"cachedName": "Forge",
@@ -707,18 +711,13 @@ notes=CalebsMod Private Modpack
 					"uid": "net.minecraft"
 				}
 			],
-			"cachedVersion": "47.4.5",
+			"cachedVersion": %[2]q,
 			"uid": "net.minecraftforge",
-			"version": "47.4.5"
+			"version": %[2]q
 		}
 	],
 	"formatVersion": 1
-}`
-	if err := addFileToZip(zipWriter, "mmc-pack.json", []byte(mmcPackJson)); err != nil {
-		return err
-	}
-
-	return nil
+}`, MINECRAFT_VERSION, FORGE_VERSION)
 }
 
 func addFileToZip(zipWriter *zip.Writer, filename string, data []byte) error {

@@ -61,6 +61,12 @@ export class DockerService implements OnModuleInit {
       this.configService.get<string>('MINECRAFT_VERSION') || '1.20.1';
     const minecraftType =
       this.configService.get<string>('MINECRAFT_TYPE') || 'FORGE';
+    const forgeVersion = this.configService.get<string>('FORGE_VERSION');
+    const levelType = this.configService.get<string>('LEVEL_TYPE');
+    // itzg's variable is ENABLE_WHITELIST; 'WHITE_LIST' was silently ignored,
+    // which left white-list=false and the access/approve flow unenforced.
+    const enableWhitelist =
+      this.configService.get<string>('ENABLE_WHITELIST') || 'false';
     const rconPassword =
       this.configService.get<string>('RCON_PASSWORD') || 'minecraft';
 
@@ -78,11 +84,13 @@ export class DockerService implements OnModuleInit {
         `MEMORY=${memory}`,
         `VERSION=${minecraftVersion}`,
         `TYPE=${minecraftType}`,
+        ...(forgeVersion ? [`FORGE_VERSION=${forgeVersion}`] : []),
+        ...(levelType ? [`LEVEL_TYPE=${levelType}`] : []),
         'ENABLE_RCON=true',
         `RCON_PASSWORD=${rconPassword}`,
         `RCON_PORT=${rconPort}`,
         'ONLINE_MODE=true',
-        'WHITE_LIST=true',
+        `ENABLE_WHITELIST=${enableWhitelist}`,
         'ENFORCE_WHITELIST=true',
       ],
       HostConfig: {

@@ -1,100 +1,374 @@
 import './App.css';
 import logo from './assets/images/CalebsModLogo.png';
 import { Link } from 'react-router-dom';
-import { StartMinecraftClient, CheckLauncherInstalled, DeleteLauncher, SyncMods } from '../wailsjs/go/main/MinecraftService';
-import { useState, useEffect } from 'react';
+import {
+	StartMinecraftClient,
+	DeleteLauncher,
+	SyncMods,
+	ResetClient,
+	GetClientStatus,
+	GetServerStatus,
+	GetClientVersion,
+} from '../wailsjs/go/main/MinecraftService';
+import { go_services } from '../wailsjs/go/models';
+import { EventsOn, EventsOff } from '../wailsjs/runtime/runtime';
+import { useState, useEffect, useCallback } from 'react';
+import ConfirmModal from './components/ConfirmModal';
+import Progress from './components/Progress';
+import { useToast, errorText } from './components/Toast';
+import {
+	DownloadIcon,
+	GlobeIcon,
+	PackageIcon,
+	PlayIcon,
+	RestoreIcon,
+	ServerIcon,
+	ShieldIcon,
+	SyncIcon,
+	TrashIcon,
+	UsersIcon,
+} from './components/Icons';
+
+const SERVER_STATUS_POLL_MS = 20000;
+const SERVER_ADDRESS = 'mc.calebwash.com';
+
+type SyncProgress = { phase: string; done: number; total: number };
+type Dialog = 'reset' | 'delete-launcher' | null;
 
 function App() {
-	const [launcherInstalled, setLauncherInstalled] = useState(false);
-	const [isInstalling, setIsInstalling] = useState(false);
+	const toast = useToast();
+
 	const [isSyncing, setIsSyncing] = useState(false);
+	const [isResetting, setIsResetting] = useState(false);
+	const [isDeletingLauncher, setIsDeletingLauncher] = useState(false);
+	const [dialog, setDialog] = useState<Dialog>(null);
+	const [progress, setProgress] = useState<SyncProgress | null>(null);
+	const [clientStatus, setClientStatus] = useState<go_services.ClientStatus | null>(null);
+	const [serverStatus, setServerStatus] = useState<go_services.ServerStatusResponse | null>(null);
+	const [serverChecked, setServerChecked] = useState(false);
+	const [version, setVersion] = useState('');
+
+	const refreshClientStatus = useCallback(async () => {
+		try {
+			setClientStatus(await GetClientStatus());
+		} catch (error) {
+			console.error('Failed to get client status:', error);
+		}
+	}, []);
+
+	const refreshServerStatus = useCallback(async () => {
+		try {
+			setServerStatus(await GetServerStatus());
+		} catch (error) {
+			console.error('Failed to get server status:', error);
+			setServerStatus(null);
+		} finally {
+			setServerChecked(true);
+		}
+	}, []);
+
+	useEffect(() => {
+		EventsOn('sync:progress', (p: SyncProgress) => setProgress(p));
+		return () => EventsOff('sync:progress');
+	}, []);
+
+	useEffect(() => {
+		refreshClientStatus();
+		refreshServerStatus();
+		GetClientVersion().then(setVersion).catch(() => setVersion(''));
+
+		const timer = setInterval(refreshServerStatus, SERVER_STATUS_POLL_MS);
+		return () => clearInterval(timer);
+	}, [refreshClientStatus, refreshServerStatus]);
 
 	const syncMods = async () => {
 		if (isSyncing) return;
-
 		setIsSyncing(true);
 		try {
-			const success = await SyncMods();
-			if (success) {
-				alert("Server added to Minecraft successfully!");
+			if (await SyncMods()) {
+				toast.success('Modpack synced', 'The server has been added to your Minecraft server list.');
 			} else {
-				alert("Failed to add server. Please check the launcher is installed.");
+				toast.error('Sync failed', 'Check that PrismLauncher is installed and closed, then try again.');
 			}
 		} catch (error) {
-			console.error("Failed to sync mods:", error);
-			alert("Failed to sync: " + error);
+			console.error('Failed to sync mods:', error);
+			toast.error('Sync failed', errorText(error));
 		} finally {
 			setIsSyncing(false);
+			setProgress(null);
+			refreshClientStatus();
 		}
-	}
+	};
+
+	const resetClient = async () => {
+		setDialog(null);
+		setIsResetting(true);
+		try {
+			if (await ResetClient()) {
+				toast.success('Client reset', 'Everything was re-downloaded from scratch.');
+			} else {
+				toast.error('Reset failed', 'Make sure PrismLauncher and Minecraft are both closed.');
+			}
+		} catch (error) {
+			console.error('Failed to reset client:', error);
+			toast.error('Reset failed', errorText(error));
+		} finally {
+			setIsResetting(false);
+			setProgress(null);
+			refreshClientStatus();
+		}
+	};
 
 	const connectToServer = async () => {
 		try {
 			await StartMinecraftClient();
-			console.log("Minecraft launched successfully");
+			toast.info('Launching Minecraft', 'PrismLauncher is starting up — this can take a moment.');
 		} catch (error) {
-			console.error("Failed to launch Minecraft:", error);
-			alert("Failed to launch Minecraft: " + error);
+			console.error('Failed to launch Minecraft:', error);
+			toast.error('Could not launch Minecraft', errorText(error));
 		}
-	}
+	};
 
 	const deleteLauncher = async () => {
-		setIsInstalling(true);
+		setDialog(null);
+		setIsDeletingLauncher(true);
 		try {
-			const success = await DeleteLauncher();
-			if (success) {
-				setLauncherInstalled(false);
-				alert("PrismLauncher deleted successfully!");
+			if (await DeleteLauncher()) {
+				toast.success('PrismLauncher removed');
 			} else {
-				alert("Failed to delete PrismLauncher. Please delete manually.");
+				toast.error('Could not remove PrismLauncher', 'Close Minecraft and PrismLauncher, then try again.');
 			}
 		} catch (error) {
-			console.error("Failed to delete PrismLauncher:", error);
-			alert("Failed to delete PrismLauncher: " + error);
+			console.error('Failed to delete PrismLauncher:', error);
+			toast.error('Could not remove PrismLauncher', errorText(error));
 		} finally {
-			setIsInstalling(false);
+			setIsDeletingLauncher(false);
+			refreshClientStatus();
 		}
-	}
+	};
 
-	useEffect(() => {
-		const checkLauncher = async () => {
-			try {
-				const installed = await CheckLauncherInstalled();
-				setLauncherInstalled(installed);
-			} catch (error) {
-				console.error("Failed to check launcher installation:", error);
-			}
-		}
-		checkLauncher();
-	}, []);
+	/* ---------------------------------------------------------------- state */
+
+	const busy = isSyncing || isResetting;
+	const percent = progress && progress.total > 0 ? (progress.done / progress.total) * 100 : null;
+	const progressLabel = progress
+		? progress.phase === 'verifying'
+			? 'Checking existing files'
+			: `Downloading files — ${progress.done} of ${progress.total}`
+		: isResetting
+			? 'Resetting client'
+			: 'Preparing';
+
+	const launcherInstalled = !!clientStatus?.launcherInstalled;
+	const serverOnline = !!serverStatus?.dockerStatus?.running;
+	const players = serverStatus?.players;
+
+	// SyncMods needs the Prism instance to already exist (it is created through
+	// Prism's import UI on first launch), so only offer it once it does.
+	const canSync = launcherInstalled && !!clientStatus?.instanceExists && !!clientStatus?.needsSync;
+
+	const syncLabel = (() => {
+		if (!clientStatus) return 'Sync Modpack';
+		if (!clientStatus.serverInConfig && clientStatus.filesMissing > 0) return 'Add Server & Sync Modpack';
+		if (!clientStatus.serverInConfig) return 'Add Server to Minecraft';
+		return 'Sync Modpack';
+	})();
+
+	// One primary action per screen: whatever the player needs to do next.
+	const primary: 'install' | 'sync' | 'launch' = !clientStatus
+		? 'launch'
+		: !launcherInstalled
+			? 'install'
+			: canSync
+				? 'sync'
+				: 'launch';
+
+	const hint = (() => {
+		if (!clientStatus) return null;
+		if (!launcherInstalled) return 'PrismLauncher is not installed yet.';
+		if (!clientStatus.instanceExists) return 'Open PrismLauncher once to finish importing the modpack.';
+		if (canSync && clientStatus.filesMissing > 0)
+			return `${clientStatus.filesMissing} file${clientStatus.filesMissing === 1 ? '' : 's'} out of date — sync before you join.`;
+		if (canSync) return 'The server still needs to be added to your Minecraft server list.';
+		if (!serverOnline && serverChecked) return 'The server is offline right now, but you can still play locally.';
+		return null;
+	})();
+
+	const mods = (() => {
+		if (!clientStatus) return { value: '—', tone: '', hint: 'Checking…', dot: '' };
+		if (clientStatus.manifestError)
+			return { value: 'Unknown', tone: 't-warn', hint: 'Could not reach the server', dot: 'dot--warn' };
+		if (!clientStatus.instanceExists)
+			return { value: 'Not installed', tone: 't-off', hint: 'Not imported yet', dot: 'dot--off' };
+		if (clientStatus.filesMissing > 0)
+			return {
+				value: `${clientStatus.filesMissing} missing`,
+				tone: 't-warn',
+				hint: clientStatus.missingExamples?.slice(0, 2).join(', ') || 'Sync to download them',
+				dot: 'dot--warn',
+			};
+		return {
+			value: 'Up to date',
+			tone: 't-ok',
+			hint: `${clientStatus.filesExpected} files · ${clientStatus.modsExpected} mods`,
+			dot: 'dot--ok',
+		};
+	})();
+
+	/* -------------------------------------------------------------- render */
 
 	return (
-        <div id="App">
-			<div className="logo-container">
-				<img src={logo} alt="CalebsMod Logo" className="app-logo" />
-				<p className="subtitle">Private Modpack for Friends</p>
-			</div>
-		   
-		   <div className="status-bar">
-			   <span className="status-item">Server: <span className="status-online">Online</span></span>
-			   <span className="status-item">Mods: <span className="status-synced">Synced</span> (Its a lie!)</span>
-		   </div>
+		<div className="home">
+			<main className="home__main">
+				<div className="hero">
+					<img src={logo} alt="CalebsMod" className="hero__logo" />
+					<p className="hero__tag">Private modpack for friends</p>
+				</div>
 
-		   <div className="options">
-				{launcherInstalled && (
-					<button className="mc-button large" onClick={syncMods} disabled={isSyncing}>
-						{isSyncing ? "Adding Server..." : "Add Server to Minecraft (Sync mods coming soon)"}
-					</button>
-				)}
-				<button className="mc-button large green" onClick={connectToServer} disabled={!launcherInstalled}>Launch Minecraft</button>
-				{launcherInstalled
-					? <button className="mc-button large" onClick={deleteLauncher} disabled={isInstalling}>Delete Launcher</button>
-					: <Link className="mc-button large" to="/install-launcher">Install Launcher</Link>
-				}
-				<Link className="mc-button admin-link" to="/admin">Admin Panel</Link>	
-		   </div>
-        </div>
-    )
+				<section className="tiles" aria-label="Status">
+					<div className="tile">
+						<div className="tile__label"><ServerIcon /> Server</div>
+						<div className={`tile__value ${serverChecked ? (serverOnline ? 't-ok' : 't-off') : ''}`}>
+							<span className={`dot ${!serverChecked ? '' : serverOnline ? 'dot--ok dot--live' : 'dot--off'}`} />
+							{!serverChecked ? 'Checking…' : serverOnline ? 'Online' : 'Offline'}
+						</div>
+						<div className="tile__hint">
+							{!serverChecked ? ' ' : serverOnline ? 'Ready to join' : 'Nobody has started it'}
+						</div>
+					</div>
+
+					<div className="tile">
+						<div className="tile__label"><UsersIcon /> Players</div>
+						<div className="tile__value">
+							{serverOnline && players ? `${players.online}${players.max ? ` / ${players.max}` : ''}` : '—'}
+						</div>
+						<div className="tile__hint" title={players?.players?.join(', ')}>
+							{serverOnline && players?.players?.length
+								? players.players.join(', ')
+								: serverOnline
+									? 'Nobody online yet'
+									: ' '}
+						</div>
+					</div>
+
+					<div className="tile">
+						<div className="tile__label"><PackageIcon /> Modpack</div>
+						<div className={`tile__value ${mods.tone}`}>
+							{mods.dot && <span className={`dot ${mods.dot}`} />}
+							{mods.value}
+						</div>
+						<div className="tile__hint" title={clientStatus?.manifestError || mods.hint}>{mods.hint}</div>
+					</div>
+				</section>
+
+				<section className="card launch-panel">
+					{busy && <Progress label={progressLabel} percent={percent} />}
+
+					{primary === 'install' ? (
+						<Link className="btn btn--primary btn--lg btn--block" to="/install-launcher">
+							<DownloadIcon />
+							Install PrismLauncher
+						</Link>
+					) : primary === 'sync' ? (
+						<button className="btn btn--primary btn--lg btn--block" onClick={syncMods} disabled={busy}>
+							{isSyncing ? <span className="spinner" /> : <SyncIcon />}
+							{isSyncing ? 'Syncing…' : syncLabel}
+						</button>
+					) : (
+						<button
+							className="btn btn--primary btn--lg btn--block"
+							onClick={connectToServer}
+							disabled={!launcherInstalled || busy}
+						>
+							<PlayIcon />
+							Launch Minecraft
+						</button>
+					)}
+
+					{primary === 'sync' && (
+						<button className="btn btn--lg btn--block" onClick={connectToServer} disabled={busy}>
+							<PlayIcon />
+							Launch Anyway
+						</button>
+					)}
+
+					{primary === 'install' && (
+						<button className="btn btn--lg btn--block" disabled>
+							<PlayIcon />
+							Launch Minecraft
+						</button>
+					)}
+
+					{hint && <p className="launch-panel__hint">{hint}</p>}
+
+					<div className="launch-panel__maintenance">
+						{launcherInstalled && !canSync && clientStatus?.instanceExists && (
+							<button className="btn btn--ghost btn--sm" onClick={syncMods} disabled={busy}>
+								{isSyncing ? <span className="spinner" /> : <SyncIcon />}
+								Re-sync
+							</button>
+						)}
+						{launcherInstalled && (
+							<button
+								className="btn btn--ghost btn--sm"
+								onClick={() => setDialog('reset')}
+								disabled={busy}
+							>
+								{isResetting ? <span className="spinner" /> : <RestoreIcon />}
+								Reset client
+							</button>
+						)}
+						{launcherInstalled ? (
+							<button
+								className="btn btn--ghost-danger btn--sm"
+								onClick={() => setDialog('delete-launcher')}
+								disabled={busy || isDeletingLauncher}
+							>
+								{isDeletingLauncher ? <span className="spinner" /> : <TrashIcon />}
+								Remove launcher
+							</button>
+						) : (
+							<Link className="btn btn--ghost btn--sm" to="/install-launcher">
+								<DownloadIcon />
+								Setup guide
+							</Link>
+						)}
+					</div>
+				</section>
+			</main>
+
+			<footer className="home__footer">
+				<span className="home__address">
+					<GlobeIcon />
+					<code>{SERVER_ADDRESS}</code>
+				</span>
+				<span className="spacer" />
+				{version && <span className="home__version">v{version}</span>}
+				<Link className="btn btn--ghost btn--sm" to="/admin">
+					<ShieldIcon />
+					Admin
+				</Link>
+			</footer>
+
+			<ConfirmModal
+				isOpen={dialog === 'reset'}
+				title="Reset client?"
+				message="This deletes your CalebsMod instance and all local modpack data, then re-downloads everything from scratch. Your Microsoft login is kept. Close Minecraft first."
+				confirmLabel="Reset client"
+				onConfirm={resetClient}
+				onCancel={() => setDialog(null)}
+			/>
+
+			<ConfirmModal
+				isOpen={dialog === 'delete-launcher'}
+				title="Remove PrismLauncher?"
+				message="This deletes the PrismLauncher install, including the CalebsMod instance and your saved Microsoft login. You will need to run the setup again to play."
+				confirmLabel="Remove launcher"
+				onConfirm={deleteLauncher}
+				onCancel={() => setDialog(null)}
+			/>
+		</div>
+	);
 }
 
-export default App
+export default App;

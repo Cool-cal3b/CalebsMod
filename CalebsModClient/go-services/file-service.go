@@ -1,18 +1,52 @@
 package go_services
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 )
 
-var pathToCalebsModClient string = filepath.Join("C:\\Users\\numbe\\AppData\\Local", "CalebsModClient")
+func getLocalFolderPath() (string, error) {
+	switch runtime.GOOS {
+	case "windows":
+		localAppData := os.Getenv("LOCALAPPDATA")
+		if localAppData == "" {
+			return "", fmt.Errorf("LOCALAPPDATA environment variable not set")
+		}
+		return filepath.Join(localAppData, "CalebsModClient"), nil
+	case "darwin":
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+		return filepath.Join(homeDir, "Library", "Application Support", "CalebsModClient"), nil
+	case "linux":
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+		return filepath.Join(homeDir, ".local", "share", "CalebsModClient"), nil
+	default:
+		return "", fmt.Errorf("unsupported operating system: %s", runtime.GOOS)
+	}
+}
 
 func EnsureLocalFolderExists() error {
-	return os.MkdirAll(pathToCalebsModClient, 0755)
+	path, err := getLocalFolderPath()
+	if err != nil {
+		return err
+	}
+	return os.MkdirAll(path, 0755)
 }
 
 func GetFileInLocalFolder(filename string) ([]byte, error) {
-	file, err := os.ReadFile(filepath.Join(pathToCalebsModClient, filename))
+	path, err := getLocalFolderPath()
+	if err != nil {
+		return nil, err
+	}
+
+	file, err := os.ReadFile(filepath.Join(path, filename))
 	if err != nil {
 		return nil, err
 	}
@@ -25,7 +59,12 @@ func SaveFileInLocalFolder(filename string, data []byte) error {
 		return err
 	}
 
-	err = os.WriteFile(filepath.Join(pathToCalebsModClient, filename), data, 0644)
+	path, err := getLocalFolderPath()
+	if err != nil {
+		return err
+	}
+
+	err = os.WriteFile(filepath.Join(path, filename), data, 0644)
 	if err != nil {
 		return err
 	}
@@ -33,8 +72,13 @@ func SaveFileInLocalFolder(filename string, data []byte) error {
 }
 
 func DeleteFileInLocalFolder(filename string) error {
-	filePath := filepath.Join(pathToCalebsModClient, filename)
-	err := os.Remove(filePath)
+	path, err := getLocalFolderPath()
+	if err != nil {
+		return err
+	}
+
+	filePath := filepath.Join(path, filename)
+	err = os.Remove(filePath)
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}

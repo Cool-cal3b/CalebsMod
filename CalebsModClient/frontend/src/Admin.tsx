@@ -1,58 +1,87 @@
-import { Link } from 'react-router-dom';
+import './App.css';
 import { useState, useEffect } from 'react';
-import { AdminKeyIsSet, IsLoggedIn, Login, SetAdminKey, ClearAdminKey, StartServer, StopServer, UpdateDns, GetServerStatus, SelectAndUploadModpackZip, DeleteAllFiles } from '../wailsjs/go/main/Admin';
+import { useNavigate } from 'react-router-dom';
+import {
+	AdminKeyIsSet,
+	IsLoggedIn,
+	Login,
+	SetAdminKey,
+	ClearAdminKey,
+	StartServer,
+	StopServer,
+	UpdateDns,
+	GetServerStatus,
+	SelectAndUploadModpackZip,
+	DeleteAllFiles,
+} from '../wailsjs/go/main/Admin';
 import { ServerStatus, MinecraftServerResponse, ServerStatusResponse } from './types/admin-types';
 import ConfirmModal from './components/ConfirmModal';
-import { useNavigate } from 'react-router-dom';
+import TopBar from './components/TopBar';
+import { useToast, errorText } from './components/Toast';
+import {
+	GlobeIcon,
+	KeyIcon,
+	ListIcon,
+	PackageIcon,
+	PowerIcon,
+	ServerIcon,
+	ShieldIcon,
+	StopIcon,
+	TrashIcon,
+	UploadIcon,
+	UsersIcon,
+} from './components/Icons';
+
+const STATUS_POLL_MS = 2000;
+
+type Dialog = 'clear-key' | 'delete-all' | null;
 
 function Admin() {
+	const navigate = useNavigate();
+	const toast = useToast();
+
 	const [isLoggedIn, setIsLoggedIn] = useState(false);
 	const [adminKeyIsSet, setAdminKeyIsSet] = useState(false);
 	const [adminKeyInput, setAdminKeyInput] = useState('');
 	const [error, setError] = useState('');
 	const [loading, setLoading] = useState(false);
-	const [showClearModal, setShowClearModal] = useState(false);
-	const [showDeleteAllModal, setShowDeleteAllModal] = useState(false);
+	const [dialog, setDialog] = useState<Dialog>(null);
 
 	const [serverIsRunning, setServerIsRunning] = useState<boolean | null>(null);
-	const [serverStatus, setServerStatus] = useState<string | null>(null);
+	const [serverState, setServerState] = useState<string | null>(null);
 	const [numberOfPlayers, setNumberOfPlayers] = useState<number | null>(null);
 	const [maxPlayers, setMaxPlayers] = useState<number | null>(null);
-	const [uploadProgress, setUploadProgress] = useState<string>('');
-
-	const navigate = useNavigate();
+	const [isUploading, setIsUploading] = useState(false);
 
 	useEffect(() => {
 		checkAuthStatus();
 	}, []);
 
 	useEffect(() => {
-		if (!isLoggedIn) {
-			return;
-		}
+		if (!isLoggedIn) return;
 
 		let timeoutId: number;
+		let cancelled = false;
 
-		const getServerStatus = async () => {
+		const poll = async () => {
 			try {
 				const response: ServerStatusResponse = await GetServerStatus();
+				if (cancelled) return;
 				setServerIsRunning(response.dockerStatus.running);
-				setServerStatus(response.dockerStatus.status);
+				setServerState(response.dockerStatus.status);
 				setNumberOfPlayers(response.players.online);
 				setMaxPlayers(response.players.max);
 			} catch (err) {
 				console.error('Failed to fetch server status:', err);
 			}
-
-			timeoutId = setTimeout(getServerStatus, 2000);
+			if (!cancelled) timeoutId = setTimeout(poll, STATUS_POLL_MS);
 		};
 
-		getServerStatus();
+		poll();
 
 		return () => {
-			if (timeoutId) {
-				clearTimeout(timeoutId);
-			}
+			cancelled = true;
+			if (timeoutId) clearTimeout(timeoutId);
 		};
 	}, [isLoggedIn]);
 
@@ -60,13 +89,9 @@ function Admin() {
 		try {
 			const keySet = await AdminKeyIsSet();
 			setAdminKeyIsSet(keySet);
-			
-			if (keySet) {
-				const loggedIn = await IsLoggedIn();
-				setIsLoggedIn(loggedIn);
-			}
+			if (keySet) setIsLoggedIn(await IsLoggedIn());
 		} catch (err) {
-			setError('Failed to check auth status');
+			setError('Could not check the saved credentials.');
 			console.error(err);
 		}
 	};
@@ -74,18 +99,17 @@ function Admin() {
 	const handleLogin = async () => {
 		setLoading(true);
 		setError('');
-		
 		try {
 			await Login();
 			setIsLoggedIn(true);
 		} catch (err) {
-			const errorMsg = (err as Error).message;
-			if (errorMsg && errorMsg.includes('invalid admin secret')) {
-				setError('Invalid admin secret. The key has been cleared. Please enter it again.');
+			const message = errorText(err);
+			if (message.includes('invalid admin secret')) {
+				setError('That secret was rejected. It has been cleared — enter it again.');
 				setAdminKeyIsSet(false);
 				setAdminKeyInput('');
 			} else {
-				setError('Login failed. Check your connection to the server. Error: ' + err);
+				setError(`Login failed. ${message}`);
 			}
 			console.error(err);
 		} finally {
@@ -95,19 +119,17 @@ function Admin() {
 
 	const handleSetAdminKey = async () => {
 		if (!adminKeyInput.trim()) {
-			setError('Please enter an admin secret');
+			setError('Enter your admin secret first.');
 			return;
 		}
-
 		setLoading(true);
 		setError('');
-
 		try {
 			await SetAdminKey(adminKeyInput);
 			setAdminKeyIsSet(true);
 			setAdminKeyInput('');
 		} catch (err) {
-			setError('Failed to save admin key');
+			setError(`Could not save the secret. ${errorText(err)}`);
 			console.error(err);
 		} finally {
 			setLoading(false);
@@ -115,17 +137,17 @@ function Admin() {
 	};
 
 	const handleClearAdminKey = async () => {
-		setShowClearModal(false);
+		setDialog(null);
 		setLoading(true);
 		setError('');
-
 		try {
 			await ClearAdminKey();
 			setAdminKeyIsSet(false);
 			setIsLoggedIn(false);
 			setAdminKeyInput('');
+			toast.info('Admin secret cleared');
 		} catch (err) {
-			setError('Failed to clear admin key');
+			setError(`Could not clear the secret. ${errorText(err)}`);
 			console.error(err);
 		} finally {
 			setLoading(false);
@@ -135,14 +157,15 @@ function Admin() {
 	const handleStartServer = async () => {
 		try {
 			const response: MinecraftServerResponse = await StartServer();
-			console.log(response);
 			if (response.status === ServerStatus.STARTED) {
-				setError("Successfully started server");
+				toast.success('Server starting', 'Give it a minute before you join.');
+			} else if (response.status === ServerStatus.ALREADY_RUNNING) {
+				toast.info('Server is already running');
 			} else {
-				setError("Failed to start server: " + response.message);
+				toast.error('Could not start the server', response.message);
 			}
 		} catch (err) {
-			setError('Failed to start server: ' + (err as Error).message);
+			toast.error('Could not start the server', errorText(err));
 			console.error(err);
 		}
 	};
@@ -151,12 +174,14 @@ function Admin() {
 		try {
 			const response: MinecraftServerResponse = await StopServer();
 			if (response.status === ServerStatus.STOPPED) {
-				setError("Successfully stopped server");
+				toast.success('Server stopped');
+			} else if (response.status === ServerStatus.ALREADY_STOPPED) {
+				toast.info('Server is already stopped');
 			} else {
-				setError("Failed to stop server: " + response.message);
+				toast.error('Could not stop the server', response.message);
 			}
 		} catch (err) {
-			setError('Failed to stop server: ' + (err as Error).message);
+			toast.error('Could not stop the server', errorText(err));
 			console.error(err);
 		}
 	};
@@ -164,234 +189,221 @@ function Admin() {
 	const handleUpdateDns = async () => {
 		try {
 			await UpdateDns();
-			setError("Successfully updated DNS to mc.calebwash.com");
+			toast.success('DNS updated', 'mc.calebwash.com now points at this host.');
 		} catch (err) {
-			setError('Failed to update DNS: ' + (err as Error).message);
+			toast.error('Could not update DNS', errorText(err));
 			console.error(err);
 		}
 	};
 
 	const handleUploadModpackZip = async () => {
-		setUploadProgress('Opening file dialog...');
-		setError('');
-
+		setIsUploading(true);
 		try {
 			const response = await SelectAndUploadModpackZip();
-			
-			setUploadProgress('');
 			if (response) {
-				setError(`Successfully uploaded! Processed ${response.filesProcessed} files.`);
-				console.log('Upload response:', response);
+				toast.success('Modpack uploaded', `${response.filesProcessed} files processed.`);
 			} else {
-				setError('No file selected.');
+				toast.info('No file selected');
 			}
 		} catch (err) {
-			setUploadProgress('');
-			setError('Failed to upload modpack zip: ' + (err as Error).message);
+			toast.error('Upload failed', errorText(err));
 			console.error(err);
+		} finally {
+			setIsUploading(false);
 		}
 	};
 
 	const handleDeleteAllFiles = async () => {
-		setShowDeleteAllModal(false);
+		setDialog(null);
 		setLoading(true);
-		setError('');
-
 		try {
 			await DeleteAllFiles();
-			setError('Successfully deleted all files. A revision has been created to sync clients.');
+			toast.success('All files deleted', 'A revision was created — clients will clear on next sync.');
 		} catch (err) {
-			setError('Failed to delete files: ' + (err as Error).message);
+			toast.error('Could not delete the files', errorText(err));
 			console.error(err);
 		} finally {
 			setLoading(false);
 		}
 	};
 
+	/* ------------------------------------------------------- first-run setup */
+
 	if (!adminKeyIsSet) {
 		return (
-			<div id="Admin">
-				<h1>Admin Setup</h1>
-				<p className="subtitle">Enter your admin secret to get started</p>
-
-				<div className="auth-form glass-card">
-					<input 
-						type="password"
-						className="mc-input"
-						placeholder="Admin Secret"
-						value={adminKeyInput}
-						onChange={(e) => setAdminKeyInput(e.target.value)}
-						onKeyPress={(e) => e.key === 'Enter' && handleSetAdminKey()}
-					/>
-					
-					{error && <p className="error-message">{error}</p>}
-					
-					<button 
-						className="mc-button large green" 
-						onClick={handleSetAdminKey}
-						disabled={loading}
-					>
-						{loading ? 'Saving...' : 'Save Admin Secret'}
-					</button>
+			<div className="page">
+				<TopBar backTo="/" title="Admin" />
+				<div className="page__body page__body--narrow">
+					<div className="card auth-card">
+						<div className="auth-card__head">
+							<h1>Admin access</h1>
+							<p className="meta">Enter the admin secret to manage the server.</p>
+						</div>
+						<div className="field">
+							<label className="field__label" htmlFor="admin-secret">Admin secret</label>
+							<input
+								id="admin-secret"
+								type="password"
+								className="input"
+								placeholder="••••••••••••"
+								autoFocus
+								value={adminKeyInput}
+								onChange={(e) => setAdminKeyInput(e.target.value)}
+								onKeyDown={(e) => e.key === 'Enter' && handleSetAdminKey()}
+							/>
+						</div>
+						{error && <div className="notice notice--danger"><ShieldIcon className="" />{error}</div>}
+						<button className="btn btn--primary btn--block" onClick={handleSetAdminKey} disabled={loading}>
+							{loading ? <span className="spinner" /> : <KeyIcon />}
+							{loading ? 'Saving…' : 'Save secret'}
+						</button>
+					</div>
 				</div>
-
-				<Link to="/" className="mc-button back-button">Back to Home</Link>
 			</div>
 		);
 	}
+
+	/* ------------------------------------------------------------------ login */
 
 	if (!isLoggedIn) {
 		return (
-			<>
-				<div id="Admin">
-					<h1>Admin Login</h1>
-					<p className="subtitle">Authenticate with the server</p>
-
-					<div className="auth-form glass-card">
-						{error && <p className="error-message">{error}</p>}
-						
-						<button 
-							className="mc-button large green" 
-							onClick={handleLogin}
-							disabled={loading}
-						>
-							{loading ? 'Logging in...' : 'Login to Server'}
+			<div className="page">
+				<TopBar backTo="/" title="Admin" />
+				<div className="page__body page__body--narrow">
+					<div className="card auth-card">
+						<div className="auth-card__head">
+							<h1>Sign in</h1>
+							<p className="meta">Your secret is saved. Authenticate with the server to continue.</p>
+						</div>
+						{error && <div className="notice notice--danger"><ShieldIcon className="" />{error}</div>}
+						<button className="btn btn--primary btn--block" onClick={handleLogin} disabled={loading}>
+							{loading ? <span className="spinner" /> : <ShieldIcon />}
+							{loading ? 'Signing in…' : 'Sign in to server'}
 						</button>
-
-						<button 
-							className="mc-button" 
-							onClick={() => setShowClearModal(true)}
-							disabled={loading}
-						>
-							Update Admin Secret
+						<button className="btn btn--ghost btn--block" onClick={() => setDialog('clear-key')} disabled={loading}>
+							Use a different secret
 						</button>
 					</div>
-
-					<Link to="/" className="mc-button back-button">Back to Home</Link>
 				</div>
 
 				<ConfirmModal
-					isOpen={showClearModal}
-					title="Clear Admin Secret?"
-					message="Are you sure you want to clear the admin secret? You will need to enter it again."
+					isOpen={dialog === 'clear-key'}
+					title="Clear the saved secret?"
+					message="You will need to enter the admin secret again the next time you open this panel."
+					confirmLabel="Clear secret"
+					tone="neutral"
 					onConfirm={handleClearAdminKey}
-					onCancel={() => setShowClearModal(false)}
+					onCancel={() => setDialog(null)}
 				/>
-			</>
+			</div>
 		);
 	}
 
+	/* ------------------------------------------------------------------ panel */
+
 	return (
-		<>
-			<div id="Admin">
-				<h1>Admin Panel</h1>
-
-				<div className="server-stats">
-					<div className="stat-card">
-						<div className="stat-label">Server Status</div>
-						<div className="stat-value">
-							{serverIsRunning === null ? (
-								<span className="status-loading">Loading...</span>
-							) : serverIsRunning ? (
-								<span className="status-online">Running</span>
-							) : (
-								<span className="status-offline">Stopped</span>
-							)}
-						</div>
-						{serverStatus && <div className="stat-detail">{serverStatus}</div>}
-					</div>
-
-					<div className="stat-card">
-						<div className="stat-label">Players Online</div>
-						<div className="stat-value">
-							{numberOfPlayers === null ? (
-								<span className="status-loading">Loading...</span>
-							) : (
-								<>
-									<span className={numberOfPlayers > 0 ? 'player-count active' : 'player-count'}>
-										{numberOfPlayers}
-									</span>
-									{maxPlayers !== null && (
-										<span className="player-max"> / {maxPlayers}</span>
-									)}
-								</>
-							)}
-						</div>
-					</div>
-				</div>
-				
-				<div className="admin-sections">
-					<section className="admin-section">
-						<h2>Manage Mods</h2>
-
-						{uploadProgress && (
-							<div className="upload-progress">{uploadProgress}</div>
-						)}
-
-						<div className="button-group">
-							<button className="mc-button">Add Mod by URL</button>
-							<button 
-								className="mc-button green" 
-								onClick={handleUploadModpackZip}
-								disabled={uploadProgress !== ''}
-							>
-								{uploadProgress ? uploadProgress : 'Upload Modpack Zip'}
-							</button>
-							<button className="mc-button" onClick={() => navigate('/all-mods')}>View All Mods</button>
-							<button 
-								className="mc-button red" 
-								onClick={() => setShowDeleteAllModal(true)}
-							>
-								Delete All Files
-							</button>
-						</div>
-					</section>
-
-					<section className="admin-section">
-						<h2>Access Requests</h2>
-						<button className="mc-button">View Pending</button>
-						<button className="mc-button">View All</button>
-					</section>
-
-					<section className="admin-section">
-						<h2>Server Control</h2>
-						<button className="mc-button green" onClick={handleStartServer}>Start Server</button>
-						<button className="mc-button red" onClick={handleStopServer}>Stop Server</button>
-						<button className="mc-button yellow" onClick={handleUpdateDns}>Update DNS</button>
-						<button className="mc-button">View Logs</button>
-					</section>
-				</div>
-
-				<div className="admin-footer">
-					<button 
-						className="mc-button" 
-						onClick={() => setShowClearModal(true)}
-						disabled={loading}
-					>
-						Update Admin Secret
+		<div className="page">
+			<TopBar
+				backTo="/"
+				title="Admin"
+				actions={
+					<button className="btn btn--ghost btn--sm" onClick={() => setDialog('clear-key')} disabled={loading}>
+						<KeyIcon />
+						Change secret
 					</button>
+				}
+			/>
+
+			<div className="page__body">
+				<div className="page-head">
+					<h1>Server control</h1>
+					<p className="lede">Manage the Minecraft server and the files every client syncs.</p>
 				</div>
 
-				<Link to="/" className="mc-button back-button">Back to Home</Link>
+				<section className="tiles tiles--spaced" aria-label="Server status">
+					<div className="tile">
+						<div className="tile__label"><ServerIcon /> Container</div>
+						<div className={`tile__value ${serverIsRunning === null ? '' : serverIsRunning ? 't-ok' : 't-off'}`}>
+							<span className={`dot ${serverIsRunning === null ? '' : serverIsRunning ? 'dot--ok dot--live' : 'dot--off'}`} />
+							{serverIsRunning === null ? 'Checking…' : serverIsRunning ? 'Running' : 'Stopped'}
+						</div>
+						<div className="tile__hint">{serverState || ' '}</div>
+					</div>
+
+					<div className="tile">
+						<div className="tile__label"><UsersIcon /> Players</div>
+						<div className="tile__value">
+							{numberOfPlayers === null ? '—' : `${numberOfPlayers}${maxPlayers !== null ? ` / ${maxPlayers}` : ''}`}
+						</div>
+						<div className="tile__hint">{serverIsRunning ? 'Live from RCON' : 'Server is not running'}</div>
+					</div>
+
+					<div className="tile">
+						<div className="tile__label"><GlobeIcon /> Address</div>
+						<div className="tile__value tile__value--sm">mc.calebwash.com</div>
+						<div className="tile__hint">Update DNS after an IP change</div>
+					</div>
+				</section>
+
+				<div className="admin-grid">
+					<section className="card">
+						<div className="card__head"><PowerIcon /><h2>Server</h2></div>
+						<div className="card__body">
+							<button className="btn" onClick={handleStartServer} disabled={serverIsRunning === true}>
+								<PowerIcon />
+								Start server
+							</button>
+							<button className="btn" onClick={handleStopServer} disabled={serverIsRunning === false}>
+								<StopIcon />
+								Stop server
+							</button>
+							<button className="btn" onClick={handleUpdateDns}>
+								<GlobeIcon />
+								Update DNS
+							</button>
+						</div>
+					</section>
+
+					<section className="card">
+						<div className="card__head"><PackageIcon /><h2>Modpack files</h2></div>
+						<div className="card__body">
+							<button className="btn" onClick={handleUploadModpackZip} disabled={isUploading}>
+								{isUploading ? <span className="spinner" /> : <UploadIcon />}
+								{isUploading ? 'Uploading…' : 'Upload modpack zip'}
+							</button>
+							<button className="btn" onClick={() => navigate('/all-mods')}>
+								<ListIcon />
+								Browse all files
+							</button>
+							<button className="btn btn--ghost-danger" onClick={() => setDialog('delete-all')} disabled={loading}>
+								<TrashIcon />
+								Delete all files
+							</button>
+						</div>
+					</section>
+				</div>
 			</div>
 
 			<ConfirmModal
-				isOpen={showClearModal}
-				title="Clear Admin Secret?"
-				message="Are you sure you want to clear the admin secret? You will need to enter it again."
+				isOpen={dialog === 'clear-key'}
+				title="Clear the saved secret?"
+				message="You will need to enter the admin secret again the next time you open this panel."
+				confirmLabel="Clear secret"
+				tone="neutral"
 				onConfirm={handleClearAdminKey}
-				onCancel={() => setShowClearModal(false)}
+				onCancel={() => setDialog(null)}
 			/>
 
 			<ConfirmModal
-				isOpen={showDeleteAllModal}
-				title="Delete All Files?"
-				message="Are you sure you want to delete ALL files (mods, configs, resource packs, etc.)? This will create a revision marking all files for deletion. Clients will sync and remove all files."
+				isOpen={dialog === 'delete-all'}
+				title="Delete every file?"
+				message="This marks all mods, configs and resource packs for deletion. Every client will remove them on the next sync. This cannot be undone."
+				confirmLabel="Delete everything"
 				onConfirm={handleDeleteAllFiles}
-				onCancel={() => setShowDeleteAllModal(false)}
+				onCancel={() => setDialog(null)}
 			/>
-		</>
+		</div>
 	);
 }
 
-export default Admin
+export default Admin;

@@ -8,6 +8,10 @@ import * as path from 'path';
 import axios from 'axios';
 import AdmZip from 'adm-zip';
 
+export const SHA256_PATTERN = /^[0-9a-f]{64}$/;
+
+export const MAX_BATCH_FILES = 1000;
+
 @Injectable()
 export class ModpackService {
   private readonly filesStorePath: string;
@@ -222,17 +226,23 @@ export class ModpackService {
         relevantPath = relevantPath.split('overrides/')[1];
       }
 
-      let serverOnly = false;
+      // Nothing ingested from a pack is server-only. mods/, config/ and
+      // thingpacks/ all have to exist on the client too: thingpacks in
+      // particular define registry entries via JsonThings, so a client missing
+      // them fails the FML handshake with "Missing registry data". Marking them
+      // server-only here is what forced a manual flag-fixing pass after upload.
+      const serverOnly = false;
       let clientOnly = false;
 
       if (relevantPath.includes('.for-manual-install/')) {
         relevantPath = relevantPath.split('.for-manual-install/')[1];
         clientOnly = true;
-      } else if (relevantPath.match(/^(mods|config|thingpacks)\//)) {
-        serverOnly = true;
-      } else if (entryPath.match(/^[^/]+\/(mods|config|thingpacks)\//)) {
-        relevantPath = entryPath.replace(/^[^/]+\//, ''); // <-- add this
-        serverOnly = true;
+      } else if (
+        !relevantPath.match(/^(mods|config|thingpacks)\//) &&
+        entryPath.match(/^[^/]+\/(mods|config|thingpacks)\//)
+      ) {
+        // Pack zips usually nest everything under one top-level folder; strip it.
+        relevantPath = entryPath.replace(/^[^/]+\//, '');
       }
 
       const pathParts = relevantPath.split('/');
@@ -380,8 +390,31 @@ export class ModpackService {
   }
 
   getPackFile(sha256: string): string | null {
+    // Store filenames are lowercase hex digests. Validating here stops a
+    // crafted id (e.g. '..%2F..%2Fpackage.json') from escaping the store via
+    // path.join and being served by the public files/:sha256 route.
+    if (typeof sha256 !== 'string' || !SHA256_PATTERN.test(sha256)) {
+      return null;
+    }
+
     const filePath = path.join(this.filesStorePath, sha256);
     return fs.existsSync(filePath) ? filePath : null;
+  }
+
+  async createBatchZip(sha256s: string[]): Promise<Buffer> {
+    const zip = new AdmZip();
+
+    for (const sha256 of sha256s) {
+      const sourcePath = this.getPackFile(sha256);
+      if (sourcePath) {
+        // Entries are keyed by hash, not path: the client already knows the
+        // hash -> path mapping from the manifest, and this keeps the batch
+        // content-addressed so it can be verified on arrival.
+        zip.addLocalFile(sourcePath, '', sha256);
+      }
+    }
+
+    return zip.toBuffer();
   }
 
   getLatestRevision(): number {

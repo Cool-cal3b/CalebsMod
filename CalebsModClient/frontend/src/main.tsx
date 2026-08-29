@@ -6,6 +6,7 @@ import App from './App'
 import Admin from './Admin'
 import InstallLauncherPage from './InstallLauncher'
 import AllMods from './AllMods'
+import {ToastProvider} from './components/Toast'
 
 const container = document.getElementById('root')
 
@@ -13,13 +14,15 @@ const root = createRoot(container!)
 
 root.render(
     <React.StrictMode>
-        <BrowserRouter>
-            <Routes>
-                <Route path="/" element={<App/>} />
-                <Route path="/admin" element={<Admin/>} />
-                <Route path="/install-launcher" element={<InstallLauncherPage/>} />
-                <Route path="/all-mods" element={<AllMods/>} />
-            </Routes>
-        </BrowserRouter>
+        <ToastProvider>
+            <BrowserRouter>
+                <Routes>
+                    <Route path="/" element={<App/>} />
+                    <Route path="/admin" element={<Admin/>} />
+                    <Route path="/install-launcher" element={<InstallLauncherPage/>} />
+                    <Route path="/all-mods" element={<AllMods/>} />
+                </Routes>
+            </BrowserRouter>
+        </ToastProvider>
     </React.StrictMode>
 )

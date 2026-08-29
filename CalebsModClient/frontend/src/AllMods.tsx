@@ -1,192 +1,224 @@
-import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import './App.css';
+import { useState, useEffect, useMemo } from 'react';
 import { GetAllFiles, UpdateFileFlags, CreateFullResync, DeleteFile } from '../wailsjs/go/main/Admin';
 import { go_services } from '../wailsjs/go/models';
-import './App.css';
+import ConfirmModal from './components/ConfirmModal';
+import TopBar from './components/TopBar';
+import { useToast, errorText } from './components/Toast';
+import { CopyIcon, PackageIcon, TrashIcon } from './components/Icons';
+
+function formatSize(bytes: number): string {
+	if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+	return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+}
 
 export default function AllMods() {
-    const [files, setFiles] = useState<go_services.PackFileDto[]>([]);
-    const [searchQuery, setSearchQuery] = useState('');
-    const [loading, setLoading] = useState(false);
-    const [message, setMessage] = useState('');
-    const [hasChanges, setHasChanges] = useState(false);
+	const toast = useToast();
 
-    useEffect(() => {
-        fetchFiles();
-    }, [searchQuery]);
+	const [files, setFiles] = useState<go_services.PackFileDto[]>([]);
+	const [searchQuery, setSearchQuery] = useState('');
+	const [loading, setLoading] = useState(false);
+	const [hasChanges, setHasChanges] = useState(false);
+	const [pendingDelete, setPendingDelete] = useState<go_services.PackFileDto | null>(null);
 
-    const fetchFiles = async () => {
-        try {
-            const result = await GetAllFiles(searchQuery);
-            setFiles(result);
-        } catch (err) {
-            setMessage('Failed to load files: ' + (err as Error).message);
-        }
-    };
+	useEffect(() => {
+		// Debounced so typing does not fire a request per keystroke.
+		const timer = setTimeout(fetchFiles, 200);
+		return () => clearTimeout(timer);
+	}, [searchQuery]);
 
-    const toggleServerOnly = (sha256: string) => {
-        setFiles(files.map(f => 
-            f.sha256 === sha256 
-                ? { ...f, serverOnly: !f.serverOnly, clientOnly: f.serverOnly ? f.clientOnly : false }
-                : f
-        ));
-        setHasChanges(true);
-    };
+	const fetchFiles = async () => {
+		try {
+			setFiles(await GetAllFiles(searchQuery));
+		} catch (err) {
+			toast.error('Could not load the file list', errorText(err));
+		}
+	};
 
-    const toggleClientOnly = (sha256: string) => {
-        setFiles(files.map(f => 
-            f.sha256 === sha256 
-                ? { ...f, clientOnly: !f.clientOnly, serverOnly: f.clientOnly ? f.serverOnly : false }
-                : f
-        ));
-        setHasChanges(true);
-    };
+	const counts = useMemo(() => ({
+		server: files.filter((f) => !f.clientOnly).length,
+		client: files.filter((f) => !f.serverOnly).length,
+	}), [files]);
 
-    const saveChanges = async () => {
-        setLoading(true);
-        setMessage('');
+	const toggleServerOnly = (sha256: string) => {
+		setFiles(files.map((f) =>
+			f.sha256 === sha256
+				? { ...f, serverOnly: !f.serverOnly, clientOnly: f.serverOnly ? f.clientOnly : false }
+				: f
+		));
+		setHasChanges(true);
+	};
 
-        try {
-            for (const file of files) {
-                await UpdateFileFlags(file.sha256, file.serverOnly, file.clientOnly);
-            }
+	const toggleClientOnly = (sha256: string) => {
+		setFiles(files.map((f) =>
+			f.sha256 === sha256
+				? { ...f, clientOnly: !f.clientOnly, serverOnly: f.clientOnly ? f.serverOnly : false }
+				: f
+		));
+		setHasChanges(true);
+	};
 
-            await CreateFullResync();
+	const saveChanges = async () => {
+		setLoading(true);
+		try {
+			for (const file of files) {
+				await UpdateFileFlags(file.sha256, file.serverOnly, file.clientOnly);
+			}
+			await CreateFullResync();
+			toast.success('Changes saved', 'A full resync revision was created for all clients.');
+			setHasChanges(false);
+			await fetchFiles();
+		} catch (err) {
+			toast.error('Could not save the changes', errorText(err));
+		} finally {
+			setLoading(false);
+		}
+	};
 
-            setMessage('Changes saved! Full resync revision created.');
-            setHasChanges(false);
-            await fetchFiles();
-        } catch (err) {
-            setMessage('Failed to save changes: ' + (err as Error).message);
-        } finally {
-            setLoading(false);
-        }
-    };
+	const confirmDelete = async () => {
+		const file = pendingDelete;
+		setPendingDelete(null);
+		if (!file) return;
 
-    const getFileTypeColor = (serverOnly: boolean, clientOnly: boolean) => {
-        if (serverOnly) return 'server-only';
-        if (clientOnly) return 'client-only';
-        return 'both';
-    };
+		setLoading(true);
+		try {
+			await DeleteFile(file.sha256);
+			toast.success(`Deleted ${file.fileName}`, 'Clients will remove it on the next sync.');
+			await fetchFiles();
+		} catch (err) {
+			toast.error('Could not delete the file', errorText(err));
+		} finally {
+			setLoading(false);
+		}
+	};
 
-    const handleDeleteFile = async (sha256: string, fileName: string) => {
-        if (!confirm(`Delete "${fileName}"? This removes it from disk and marks it for deletion on all clients.`)) return;
-        setLoading(true);
-        setMessage('');
-        try {
-            await DeleteFile(sha256);
-            setMessage(`Deleted ${fileName}. Clients will remove it on next sync.`);
-            await fetchFiles();
-        } catch (err) {
-            setMessage('Failed to delete: ' + (err as Error).message);
-        } finally {
-            setLoading(false);
-        }
-    };
+	const copyList = async (which: 'server' | 'client') => {
+		const list = files.filter((f) => (which === 'server' ? !f.clientOnly : !f.serverOnly));
+		try {
+			await navigator.clipboard.writeText(list.map((f) => f.fileName).join('\n'));
+			toast.success(`Copied ${list.length} ${which} file${list.length === 1 ? '' : 's'}`);
+		} catch (err) {
+			toast.error('Could not copy to the clipboard', errorText(err));
+		}
+	};
 
-    const copyServerMods = async () => {
-        const list = files.filter(f => !f.clientOnly).map(f => f.fileName).join('\n');
-        await navigator.clipboard.writeText(list);
-        setMessage(`Copied ${files.filter(f => !f.clientOnly).length} server mods to clipboard`);
-        setTimeout(() => setMessage(''), 2000);
-    };
-
-    const copyClientMods = async () => {
-        const list = files.filter(f => !f.serverOnly).map(f => f.fileName).join('\n');
-        await navigator.clipboard.writeText(list);
-        setMessage(`Copied ${files.filter(f => !f.serverOnly).length} client mods to clipboard`);
-        setTimeout(() => setMessage(''), 2000);
-    };
+	const rowClass = (file: go_services.PackFileDto) =>
+		file.serverOnly ? 'file-row file-row--server'
+			: file.clientOnly ? 'file-row file-row--client'
+				: 'file-row file-row--both';
 
 	return (
-		<div id="Admin">
-			<h1>All Files</h1>
-            
-            <div className="glass-card" style={{ marginBottom: '20px' }}>
-                <input 
-                    type="text" 
-                    className="mc-input"
-                    placeholder="Search files..." 
-                    value={searchQuery} 
-                    onChange={(e) => setSearchQuery(e.target.value)} 
-                    style={{ width: '100%', marginBottom: '10px' }}
-                />
-                
-                {message && (
-                    <div className={message.includes('Failed') ? 'error-message' : 'success-message'}>
-                        {message}
-                    </div>
-                )}
+		<div className="page">
+			<TopBar
+				backTo="/admin"
+				title="Modpack files"
+				actions={
+					hasChanges ? (
+						<button className="btn btn--primary btn--sm" onClick={saveChanges} disabled={loading}>
+							{loading && <span className="spinner" />}
+							{loading ? 'Saving…' : 'Save & create resync'}
+						</button>
+					) : (
+						<span className="meta">{files.length} file{files.length === 1 ? '' : 's'}</span>
+					)
+				}
+			/>
 
-                {hasChanges && (
-                    <button 
-                        className="mc-button green large" 
-                        onClick={saveChanges}
-                        disabled={loading}
-                        style={{ marginBottom: '20px' }}
-                    >
-                        {loading ? 'Saving & Creating Resync...' : 'Save Changes & Create Full Resync'}
-                    </button>
-                )}
+			<div className="page__body">
+				<div className="files-toolbar">
+					<div className="files-toolbar__row">
+						<input
+							type="text"
+							className="input input--search files-toolbar__search"
+							placeholder="Search files…"
+							value={searchQuery}
+							onChange={(e) => setSearchQuery(e.target.value)}
+						/>
+						<button className="btn btn--sm" onClick={() => copyList('server')}>
+							<CopyIcon />
+							Server list ({counts.server})
+						</button>
+						<button className="btn btn--sm" onClick={() => copyList('client')}>
+							<CopyIcon />
+							Client list ({counts.client})
+						</button>
+					</div>
 
-                <div style={{ fontSize: '12px', marginBottom: '10px', color: '#888' }}>
-                    <strong>Legend:</strong> 
-                    <span style={{ color: '#ff6b6b', marginLeft: '10px' }}>🔴 Server Only</span>
-                    <span style={{ color: '#4dabf7', marginLeft: '10px' }}>🔵 Client Only</span>
-                    <span style={{ color: '#51cf66', marginLeft: '10px' }}>🟢 Both</span>
-                </div>
+					<div className="legend">
+						<span className="legend__item">
+							<span className="legend__swatch" style={{ background: 'var(--accent)' }} /> Both sides
+						</span>
+						<span className="legend__item">
+							<span className="legend__swatch" style={{ background: 'var(--danger)' }} /> Server only
+						</span>
+						<span className="legend__item">
+							<span className="legend__swatch" style={{ background: 'var(--info)' }} /> Client only
+						</span>
+					</div>
 
-                <div style={{ display: 'flex', gap: '10px', marginBottom: '10px' }}>
-                    <button className="mc-button small" onClick={copyServerMods}>
-                        Copy Server Mods
-                    </button>
-                    <button className="mc-button small" onClick={copyClientMods}>
-                        Copy Client Mods
-                    </button>
-                </div>
-            </div>
+					{hasChanges && (
+						<div className="notice notice--info">
+							<PackageIcon className="" />
+							Unsaved flag changes. Saving creates a full resync revision for every client.
+						</div>
+					)}
+				</div>
 
-            <div className="files-list">
-                {files.length === 0 ? (
-                    <div className="glass-card">No files found</div>
-                ) : (
-                    files.map((file) => (
-                        <div key={file.sha256} className={`file-item glass-card ${getFileTypeColor(file.serverOnly, file.clientOnly)}`}>
-                            <div className="file-info">
-                                <div className="file-name">{file.fileName}</div>
-                                <div className="file-details">
-                                    <span>{file.fileType}</span>
-                                    <span>{(file.fileSize / 1024).toFixed(2)} KB</span>
-                                    <span>{file.relativePath}</span>
-                                </div>
-                            </div>
-                            <div className="file-controls">
-                                <button 
-                                    className={`mc-button small ${file.serverOnly ? 'red' : ''}`}
-                                    onClick={() => toggleServerOnly(file.sha256)}
-                                >
-                                    Server Only: {file.serverOnly ? '✓' : '✗'}
-                                </button>
-                                <button 
-                                    className={`mc-button small ${file.clientOnly ? 'blue' : ''}`}
-                                    onClick={() => toggleClientOnly(file.sha256)}
-                                >
-                                    Client Only: {file.clientOnly ? '✓' : '✗'}
-                                </button>
-                                <button 
-                                    className="mc-button small red"
-                                    onClick={() => handleDeleteFile(file.sha256, file.fileName)}
-                                    disabled={loading}
-                                >
-                                    Delete
-                                </button>
-                            </div>
-                        </div>
-                    ))
-                )}
-            </div>
+				{files.length === 0 ? (
+					<div className="empty-state">
+						<PackageIcon className="" />
+						<p>{searchQuery ? `No files match “${searchQuery}”.` : 'No files have been uploaded yet.'}</p>
+					</div>
+				) : (
+					<div className="files-list">
+						{files.map((file) => (
+							<div key={file.sha256} className={rowClass(file)}>
+								<div className="file-row__info">
+									<div className="file-row__name" title={file.fileName}>{file.fileName}</div>
+									<div className="file-row__meta">
+										<span>{file.fileType}</span>
+										<span>{formatSize(file.fileSize)}</span>
+										<span className="file-row__path" title={file.relativePath}>{file.relativePath}</span>
+									</div>
+								</div>
+								<div className="file-row__actions">
+									<button
+										className="btn btn--sm btn--toggle is-danger"
+										aria-pressed={file.serverOnly}
+										onClick={() => toggleServerOnly(file.sha256)}
+									>
+										Server only
+									</button>
+									<button
+										className="btn btn--sm btn--toggle is-info"
+										aria-pressed={file.clientOnly}
+										onClick={() => toggleClientOnly(file.sha256)}
+									>
+										Client only
+									</button>
+									<button
+										className="btn btn--sm btn--ghost-danger"
+										onClick={() => setPendingDelete(file)}
+										disabled={loading}
+										aria-label={`Delete ${file.fileName}`}
+									>
+										<TrashIcon />
+									</button>
+								</div>
+							</div>
+						))}
+					</div>
+				)}
+			</div>
 
-            <Link to="/admin" className="mc-button back-button">Back to Admin</Link>
+			<ConfirmModal
+				isOpen={pendingDelete !== null}
+				title="Delete this file?"
+				message={`“${pendingDelete?.fileName ?? ''}” will be removed from disk and marked for deletion on every client.`}
+				confirmLabel="Delete file"
+				onConfirm={confirmDelete}
+				onCancel={() => setPendingDelete(null)}
+			/>
 		</div>
 	);
 }

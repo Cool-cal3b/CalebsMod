@@ -18,16 +18,21 @@ func main() {
 	minecraft := NewMinecraftService()
 
 	err := wails.Run(&options.App{
-		Title:  "CalebsModClient",
-		Width:  1024,
-		Height: 768,
+		Title:     "CalebsMod",
+		Width:     1024,
+		Height:    768,
+		MinWidth:  820,
+		MinHeight: 620,
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},
-		BackgroundColour: &options.RGBA{R: 27, G: 38, B: 54, A: 1},
+		// Matches --bg in the frontend so the window does not flash a
+		// different colour before the web view paints.
+		BackgroundColour: &options.RGBA{R: 244, G: 242, B: 236, A: 1},
 		OnStartup: func(ctx context.Context) {
 			app.startup(ctx)
 			admin.startup(ctx)
+			minecraft.startup(ctx)
 		},
 		Bind: []interface{}{
 			app,

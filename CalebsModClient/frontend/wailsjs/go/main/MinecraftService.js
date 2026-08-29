@@ -10,8 +10,24 @@ export function DeleteLauncher() {
   return window['go']['main']['MinecraftService']['DeleteLauncher']();
 }
 
+export function GetClientStatus() {
+  return window['go']['main']['MinecraftService']['GetClientStatus']();
+}
+
+export function GetClientVersion() {
+  return window['go']['main']['MinecraftService']['GetClientVersion']();
+}
+
+export function GetServerStatus() {
+  return window['go']['main']['MinecraftService']['GetServerStatus']();
+}
+
 export function InstallLauncher() {
   return window['go']['main']['MinecraftService']['InstallLauncher']();
+}
+
+export function ResetClient() {
+  return window['go']['main']['MinecraftService']['ResetClient']();
 }
 
 export function StartMinecraftClient() {

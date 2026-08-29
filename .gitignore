@@ -1,0 +1,10 @@
+
+# --- Secrets: never commit credentials ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Launcher crash logs pasted in for debugging
+error.txt
