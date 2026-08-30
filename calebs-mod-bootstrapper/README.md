@@ -19,8 +19,13 @@ This is the bootstrapper/launcher for Caleb's Mod Client. This small executable 
 - The bootstrapper stores files in: `%LOCALAPPDATA%\CalebsMod\`
 - It checks the server for the latest version
 - If an update is available, it downloads and installs it atomically (safely)
-- Old versions are backed up before installing new ones
+- Exactly one client binary is kept; the replaced one is deleted on the spot,
+  or on the next run if a client was still open and holding it
 - The client is launched automatically after updates
+
+The client can also update itself from inside the app, without the
+bootstrapper. Both paths install the same way and write the same version file,
+so they cannot disagree about what is installed.
 
 ### First Time Setup:
 
@@ -42,7 +47,7 @@ On subsequent runs, the bootstrapper will:
 
 **Problem: "Failed to check for updates"**
 - Check your internet connection
-- Make sure you can reach: https://mc.calebwash.com:3000
+- Make sure you can reach: https://mc.calebwash.com
 - The server might be temporarily down
 
 **Problem: "Download failed"**
@@ -98,17 +103,31 @@ go build -ldflags="-s -w -H windowsgui" -o CalebsModBootstrapper.exe calebs-mod-
 
 ### How It Works:
 
-1. **Version Check**: Hits `GET /api/server/latest-client-release` endpoint
-2. **Compare Versions**: Compares local version with server version
-3. **Download**: Downloads the signed S3 URL if update is needed
-4. **Atomic Update**:
-   - Downloads to temporary file (`.download` suffix)
-   - Verifies download integrity (size check and SHA256)
-   - Extracts to temporary directory
-   - Backs up old client to `client_old`
-   - Moves new client to main location
-   - Updates version file
-5. **Launch**: Executes the client
+1. **Sweep**: Removes scratch files and displaced binaries left by a previous
+   run or by a client self-update, so nothing accumulates across releases
+2. **Version Check**: Hits `GET /api/server/latest-client-release` endpoint
+3. **Compare Versions**: Any difference triggers an install, so a rollback on
+   the server is carried down as readily as an update up. (The client's own
+   in-app prompt only offers strictly newer versions, so nobody is nagged to
+   "update" backwards.)
+4. **Download**: Downloads the signed S3 URL if an install is needed
+5. **Atomic Install** — everything happens inside `.calebsmod-update\` in the
+   install folder, so every rename stays on one volume:
+   - Verifies the download: SHA256 against the digest the server publishes,
+     plus a size floor that catches truncated downloads and error pages
+   - Extracts with `archive/zip`, rejecting entries that escape the folder
+   - Renames the live `CalebsModClient.exe` aside to `.old`
+   - Renames the new binary into its place
+   - Deletes the `.old` file, or leaves it for the next run if a client is
+     still running from it
+   - Updates the version file
+6. **Launch**: Executes the client
+
+Windows will not let you delete a running executable but will let you rename
+one, which is what makes the swap work even when the client is already open. A
+plain copy over the live binary fails outright in that case — which used to
+strand anyone who left the client running — and can leave a half-written
+executable if it is interrupted.
 
 ### Configuration:
 
@@ -116,16 +135,18 @@ Edit these constants in `calebs-mod-bootstrapper.go`:
 
 ```go
 const (
-    ServerURL         = "https://mc.calebwash.com:3000"
-    VersionEndpoint   = "/api/server/latest-client-release"
-    ClientExecutable  = "CalebsModClient.exe"
+    ServerURL        = "https://mc.calebwash.com"
+    VersionEndpoint  = "/api/server/latest-client-release"
+    ClientExecutable = "CalebsModClient.exe"
 )
 ```
 
 ### Important Gotchas Addressed:
 
-✅ **Atomic Updates**: Old client is backed up before new one is installed
-✅ **Integrity Checks**: Downloaded files are verified before extraction
+✅ **Atomic Updates**: The swap is two renames, so an interruption leaves either the old binary or the new one — never a half-written file
+✅ **Updates While Running**: Renaming works on a client that is already open, where a copy would fail
+✅ **Integrity Checks**: SHA256 verified against the digest the server publishes, before anything replaces a working binary
+✅ **No Leftovers**: Exactly one client binary is kept; scratch files and displaced binaries are swept on every run
 ✅ **Graceful Fallback**: If update fails, attempts to launch existing client
 ✅ **Progress Indicators**: Shows download progress to users
 ✅ **Error Messages**: Clear, actionable error messages

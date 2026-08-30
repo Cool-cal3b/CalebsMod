@@ -1,7 +1,9 @@
 package main
 
 import (
+	"archive/zip"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -14,17 +16,31 @@ import (
 )
 
 const (
-	ServerURL         = "https://mc.calebwash.com"
-	VersionEndpoint   = "/api/server/latest-client-release"
-	ClientExecutable  = "CalebsModClient.exe"
-	VersionFileName   = "CurrentCalebModClientVersion.txt"
-	TempDownloadSuffix = ".download"
-	ChecksumSuffix    = ".sha256"
+	ServerURL        = "https://mc.calebwash.com"
+	VersionEndpoint  = "/api/server/latest-client-release"
+	ClientExecutable = "CalebsModClient.exe"
+	VersionFileName  = "CurrentCalebModClientVersion.txt"
+
+	// Everything downloaded or unpacked lives under this one directory inside
+	// the install folder, so a failed run leaves a single thing to clean up
+	// and every rename during the install stays on one volume.
+	StagingDirName = ".calebsmod-update"
+
+	// Windows will not delete a running executable but will rename one. The
+	// displaced binary keeps this suffix until a later run can remove it.
+	OldExeSuffix = ".old"
+
+	// A release smaller than this is a truncated download or an error page,
+	// never a real Wails build.
+	MinReleaseZipBytes = 1024 * 1024
 )
 
 type ReleaseInfo struct {
 	Version     string `json:"version"`
 	DownloadURL string `json:"downloadUrl"`
+	// Optional. Releases published before the server started emitting a digest
+	// have none, and those fall back to the size check alone.
+	Sha256 string `json:"sha256,omitempty"`
 }
 
 func main() {
@@ -47,6 +63,10 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Sweep whatever a previous run or a client self-update left behind before
+	// doing anything else, so leftovers cannot accumulate across releases.
+	cleanupLeftovers(appDataPath)
+
 	currentVersion, err := getCurrentVersion(appDataPath)
 	if err != nil {
 		fmt.Printf("Warning: Could not read current version: %v\n", err)
@@ -68,14 +88,23 @@ func main() {
 	fmt.Printf("Latest version: %s\n", release.Version)
 	fmt.Println()
 
-	if currentVersion == release.Version {
+	// Any difference triggers an install, not just a higher number. The
+	// bootstrapper is the "make my install match the server" tool, so it has
+	// to carry a rollback down as readily as an update up. (The client's own
+	// in-app update prompt is the opposite: it only offers strictly newer
+	// versions, so nobody is nagged to "update" backwards.)
+	if currentVersion == release.Version && clientExists(appDataPath) {
 		fmt.Println("You are running the latest version!")
 		fmt.Println("Launching client...")
 		launchClient(appDataPath)
 		os.Exit(0)
 	}
 
-	fmt.Printf("Update available: %s -> %s\n", currentVersion, release.Version)
+	if currentVersion == release.Version {
+		fmt.Println("Version is current but the client is missing - reinstalling...")
+	} else {
+		fmt.Printf("Update available: %s -> %s\n", currentVersion, release.Version)
+	}
 	fmt.Println("Starting update process...")
 	fmt.Println()
 
@@ -106,6 +135,39 @@ func ensureAppDataExists(appDataPath string) error {
 	return os.MkdirAll(appDataPath, 0755)
 }
 
+func clientExists(appDataPath string) bool {
+	info, err := os.Stat(filepath.Join(appDataPath, ClientExecutable))
+	return err == nil && !info.IsDir() && info.Size() >= MinReleaseZipBytes
+}
+
+// cleanupLeftovers deletes the scratch files an install can leave behind. The
+// ".old" sweep is what keeps a user from accumulating one stale binary per
+// release: the client's self-update renames its own running image aside and
+// cannot delete it while it is still running, so somebody has to collect it
+// later, and the bootstrapper always runs with no client of its own to hold
+// the file open. Failures are ignored - an old client that happens to be open
+// right now is collected on the next run instead.
+func cleanupLeftovers(appDataPath string) {
+	os.RemoveAll(filepath.Join(appDataPath, StagingDirName))
+
+	// Scratch paths used by earlier bootstrapper versions.
+	os.RemoveAll(filepath.Join(appDataPath, "client_new"))
+	os.RemoveAll(filepath.Join(appDataPath, "client_old"))
+	os.Remove(filepath.Join(appDataPath, "client.zip"))
+	os.Remove(filepath.Join(appDataPath, "client.zip.download"))
+	os.Remove(filepath.Join(appDataPath, "client.zip.download.sha256"))
+
+	entries, err := os.ReadDir(appDataPath)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), OldExeSuffix) {
+			os.Remove(filepath.Join(appDataPath, entry.Name()))
+		}
+	}
+}
+
 func getCurrentVersion(appDataPath string) (string, error) {
 	versionFile := filepath.Join(appDataPath, VersionFileName)
 	data, err := os.ReadFile(versionFile)
@@ -117,7 +179,7 @@ func getCurrentVersion(appDataPath string) (string, error) {
 
 func getLatestRelease() (*ReleaseInfo, error) {
 	url := ServerURL + VersionEndpoint
-	
+
 	client := &http.Client{
 		Timeout: 30 * time.Second,
 	}
@@ -137,74 +199,110 @@ func getLatestRelease() (*ReleaseInfo, error) {
 		return nil, fmt.Errorf("failed to parse server response: %w", err)
 	}
 
+	if release.Version == "" || release.DownloadURL == "" {
+		return nil, fmt.Errorf("server returned an incomplete release")
+	}
+
 	return &release, nil
 }
 
+// performUpdate downloads the release and swaps it into place.
+//
+// The install is a pair of renames within the install directory rather than a
+// copy over the live binary. That matters twice over: an interrupted copy used
+// to leave a truncated executable and no way back, and a copy fails outright
+// when the client is already running, which silently stranded anyone who left
+// the client open. A rename succeeds in both cases.
 func performUpdate(appDataPath string, release *ReleaseInfo) error {
-	tempZipPath := filepath.Join(appDataPath, "client.zip"+TempDownloadSuffix)
-	finalZipPath := filepath.Join(appDataPath, "client.zip")
-	tempExtractPath := filepath.Join(appDataPath, "client_new")
-	oldClientPath := filepath.Join(appDataPath, "client_old")
+	staging := filepath.Join(appDataPath, StagingDirName)
 
-	fmt.Println("Step 1/5: Downloading new client...")
-	if err := downloadFile(tempZipPath, release.DownloadURL); err != nil {
+	os.RemoveAll(staging)
+	if err := os.MkdirAll(staging, 0755); err != nil {
+		return fmt.Errorf("failed to create staging directory: %w", err)
+	}
+	defer os.RemoveAll(staging)
+
+	zipPath := filepath.Join(staging, "client.zip")
+
+	fmt.Println("Step 1/4: Downloading new client...")
+	if err := downloadFile(zipPath, release.DownloadURL); err != nil {
 		return fmt.Errorf("download failed: %w", err)
 	}
 	fmt.Println("Download complete!")
 
-	fmt.Println("\nStep 2/5: Verifying download...")
-	if err := verifyDownload(tempZipPath); err != nil {
-		os.Remove(tempZipPath)
+	fmt.Println("\nStep 2/4: Verifying download...")
+	if err := verifyDownload(zipPath, release.Sha256); err != nil {
 		return fmt.Errorf("verification failed: %w", err)
 	}
 	fmt.Println("Verification successful!")
 
-	if err := os.Rename(tempZipPath, finalZipPath); err != nil {
-		os.Remove(tempZipPath)
-		return fmt.Errorf("failed to finalize download: %w", err)
-	}
-
-	fmt.Println("\nStep 3/5: Extracting new client...")
-	if err := extractZip(finalZipPath, tempExtractPath); err != nil {
-		os.Remove(finalZipPath)
-		os.RemoveAll(tempExtractPath)
+	fmt.Println("\nStep 3/4: Extracting new client...")
+	extractPath := filepath.Join(staging, "extracted")
+	if err := extractZip(zipPath, extractPath); err != nil {
 		return fmt.Errorf("extraction failed: %w", err)
 	}
 	fmt.Println("Extraction complete!")
 
-	fmt.Println("\nStep 4/5: Backing up current client...")
-	os.RemoveAll(oldClientPath)
-	clientExePath := filepath.Join(appDataPath, ClientExecutable)
-	if _, err := os.Stat(clientExePath); err == nil {
-		if err := os.Rename(clientExePath, filepath.Join(oldClientPath, ClientExecutable)); err != nil {
-			fmt.Printf("Warning: Could not backup old client: %v\n", err)
-		}
-	}
-
-	fmt.Println("\nStep 5/5: Installing new client...")
-	newClientExe := findExecutableInDir(tempExtractPath)
+	fmt.Println("\nStep 4/4: Installing new client...")
+	newClientExe := findExecutableInDir(extractPath)
 	if newClientExe == "" {
-		os.RemoveAll(tempExtractPath)
 		return fmt.Errorf("could not find client executable in downloaded files")
 	}
 
-	finalExePath := filepath.Join(appDataPath, ClientExecutable)
-	if err := copyFile(newClientExe, finalExePath); err != nil {
-		os.RemoveAll(tempExtractPath)
-		return fmt.Errorf("failed to install new client: %w", err)
+	clientPath := filepath.Join(appDataPath, ClientExecutable)
+	replacedRunning, err := installExecutable(clientPath, newClientExe)
+	if err != nil {
+		return err
 	}
 
 	if err := os.WriteFile(filepath.Join(appDataPath, VersionFileName), []byte(release.Version), 0644); err != nil {
 		fmt.Printf("Warning: Could not update version file: %v\n", err)
 	}
 
-	os.Remove(finalZipPath)
-	os.RemoveAll(tempExtractPath)
+	if replacedRunning {
+		fmt.Println("\nNote: a client was already open. That window is still running the")
+		fmt.Println("old version - close it and use the one about to open instead.")
+	}
 
 	return nil
 }
 
-func downloadFile(filepath string, url string) error {
+// installExecutable moves newExe to clientPath, displacing whatever is there.
+// It reports whether the replaced binary was still locked by a running
+// process, which is the case worth telling the user about.
+func installExecutable(clientPath, newExe string) (bool, error) {
+	oldPath := clientPath + OldExeSuffix
+	os.Remove(oldPath)
+
+	existed := false
+	if _, err := os.Stat(clientPath); err == nil {
+		existed = true
+		if err := os.Rename(clientPath, oldPath); err != nil {
+			return false, fmt.Errorf("could not move the current client aside: %w", err)
+		}
+	}
+
+	if err := os.Rename(newExe, clientPath); err != nil {
+		if existed {
+			// Put the working client back before giving up.
+			if restoreErr := os.Rename(oldPath, clientPath); restoreErr != nil {
+				return false, fmt.Errorf("install failed (%w) and the original client could not be restored from %s: %v", err, oldPath, restoreErr)
+			}
+		}
+		return false, fmt.Errorf("failed to install new client: %w", err)
+	}
+
+	if !existed {
+		return false, nil
+	}
+
+	// A successful delete means nothing held the file open. A failure means a
+	// client is still running from it; it gets collected on the next run.
+	stillRunning := os.Remove(oldPath) != nil
+	return stillRunning, nil
+}
+
+func downloadFile(dest string, url string) error {
 	client := &http.Client{
 		Timeout: 10 * time.Minute,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
@@ -225,7 +323,7 @@ func downloadFile(filepath string, url string) error {
 		return fmt.Errorf("server returned status %d for URL: %s", resp.StatusCode, url)
 	}
 
-	out, err := os.Create(filepath)
+	out, err := os.Create(dest)
 	if err != nil {
 		return err
 	}
@@ -247,9 +345,9 @@ func downloadFile(filepath string, url string) error {
 			if totalBytes > 0 {
 				percent := int(float64(downloaded) / float64(totalBytes) * 100)
 				if percent != lastPercent && percent%10 == 0 {
-					fmt.Printf("Progress: %d%% (%d MB / %d MB)\n", 
-						percent, 
-						downloaded/1024/1024, 
+					fmt.Printf("Progress: %d%% (%d MB / %d MB)\n",
+						percent,
+						downloaded/1024/1024,
 						totalBytes/1024/1024)
 					lastPercent = percent
 				}
@@ -263,49 +361,109 @@ func downloadFile(filepath string, url string) error {
 		}
 	}
 
-	return nil
+	// A connection cut mid-transfer otherwise looks like a complete download
+	// of a smaller file, and would go on to replace a working binary.
+	if totalBytes > 0 && downloaded != totalBytes {
+		return fmt.Errorf("download ended early (%d of %d bytes)", downloaded, totalBytes)
+	}
+
+	return out.Sync()
 }
 
-func verifyDownload(filepath string) error {
-	file, err := os.Open(filepath)
+// verifyDownload checks the release before it is allowed to replace a working
+// client. When the server publishes a digest this is a real integrity check;
+// without one only the size is known, which still catches truncated downloads
+// and error pages served in place of the file.
+func verifyDownload(path string, expectedSha256 string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+
+	if info.Size() < MinReleaseZipBytes {
+		return fmt.Errorf("downloaded file is too small (%d bytes)", info.Size())
+	}
+
+	if expectedSha256 == "" {
+		fmt.Println("(server published no checksum for this release; size checked only)")
+		return nil
+	}
+
+	file, err := os.Open(path)
 	if err != nil {
 		return err
 	}
 	defer file.Close()
-
-	stat, err := file.Stat()
-	if err != nil {
-		return err
-	}
-
-	if stat.Size() < 1024*1024 {
-		return fmt.Errorf("downloaded file is too small (less than 1MB)")
-	}
 
 	hash := sha256.New()
 	if _, err := io.Copy(hash, file); err != nil {
 		return err
 	}
 
-	checksum := fmt.Sprintf("%x", hash.Sum(nil))
-	checksumFile := filepath + ChecksumSuffix
-	os.WriteFile(checksumFile, []byte(checksum), 0644)
+	actual := hex.EncodeToString(hash.Sum(nil))
+	if !strings.EqualFold(actual, expectedSha256) {
+		return fmt.Errorf("checksum mismatch (expected %s, got %s)", expectedSha256, actual)
+	}
 
 	return nil
 }
 
-func extractZip(zipPath, destPath string) error {
-	os.RemoveAll(destPath)
-	if err := os.MkdirAll(destPath, 0755); err != nil {
+// extractZip unpacks src into dest, rejecting entries that would escape the
+// destination. Using archive/zip rather than shelling out to Expand-Archive
+// keeps the bootstrapper working where PowerShell is locked down, and drops a
+// process launch that antivirus tends to take an interest in.
+func extractZip(src, dest string) error {
+	r, err := zip.OpenReader(src)
+	if err != nil {
+		return err
+	}
+	defer r.Close()
+
+	if err := os.MkdirAll(dest, 0755); err != nil {
 		return err
 	}
 
-	cmd := exec.Command("powershell", "-Command", 
-		fmt.Sprintf("Expand-Archive -Path '%s' -DestinationPath '%s' -Force", zipPath, destPath))
-	
-	output, err := cmd.CombinedOutput()
+	root, err := filepath.Abs(dest)
 	if err != nil {
-		return fmt.Errorf("extraction failed: %w\nOutput: %s", err, string(output))
+		return err
+	}
+
+	for _, f := range r.File {
+		target := filepath.Join(root, filepath.FromSlash(f.Name))
+
+		rel, err := filepath.Rel(root, target)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+			return fmt.Errorf("release contains an unsafe path: %s", f.Name)
+		}
+
+		if f.FileInfo().IsDir() {
+			if err := os.MkdirAll(target, 0755); err != nil {
+				return err
+			}
+			continue
+		}
+
+		if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
+			return err
+		}
+
+		rc, err := f.Open()
+		if err != nil {
+			return err
+		}
+
+		out, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.Mode())
+		if err != nil {
+			rc.Close()
+			return err
+		}
+
+		_, copyErr := io.Copy(out, rc)
+		out.Close()
+		rc.Close()
+		if copyErr != nil {
+			return copyErr
+		}
 	}
 
 	return nil
@@ -313,7 +471,7 @@ func extractZip(zipPath, destPath string) error {
 
 func findExecutableInDir(dir string) string {
 	var exePath string
-	
+
 	filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return nil
@@ -330,29 +488,9 @@ func findExecutableInDir(dir string) string {
 	return exePath
 }
 
-func copyFile(src, dst string) error {
-	sourceFile, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer sourceFile.Close()
-
-	destFile, err := os.Create(dst)
-	if err != nil {
-		return err
-	}
-	defer destFile.Close()
-
-	if _, err := io.Copy(destFile, sourceFile); err != nil {
-		return err
-	}
-
-	return destFile.Sync()
-}
-
 func launchClient(appDataPath string) {
 	clientPath := filepath.Join(appDataPath, ClientExecutable)
-	
+
 	if _, err := os.Stat(clientPath); err != nil {
 		fmt.Printf("Warning: Client executable not found at %s\n", clientPath)
 		return
@@ -360,7 +498,7 @@ func launchClient(appDataPath string) {
 
 	cmd := exec.Command(clientPath)
 	cmd.Dir = appDataPath
-	
+
 	if err := cmd.Start(); err != nil {
 		fmt.Printf("Warning: Failed to launch client: %v\n", err)
 		fmt.Println("You can manually launch the client from:")

@@ -140,11 +140,11 @@ func GetPublicServerStatus() (ServerStatusResponse, error) {
 // file is absent when the client is run directly (dev, or a manual copy), in
 // which case the UI simply shows nothing rather than a fake number.
 func GetClientVersion() string {
-	localAppData := os.Getenv("LOCALAPPDATA")
-	if localAppData == "" {
+	path, err := versionFilePath()
+	if err != nil {
 		return ""
 	}
-	data, err := os.ReadFile(filepath.Join(localAppData, "CalebsMod", "CurrentCalebModClientVersion.txt"))
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return ""
 	}

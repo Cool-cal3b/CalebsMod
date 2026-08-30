@@ -9,6 +9,8 @@ import {
 	GetClientStatus,
 	GetServerStatus,
 	GetClientVersion,
+	CheckForClientUpdate,
+	ApplyClientUpdate,
 } from '../wailsjs/go/main/MinecraftService';
 import { go_services } from '../wailsjs/go/models';
 import { EventsOn, EventsOff } from '../wailsjs/runtime/runtime';
@@ -26,6 +28,7 @@ import {
 	ShieldIcon,
 	SyncIcon,
 	TrashIcon,
+	UpdateIcon,
 	UsersIcon,
 } from './components/Icons';
 
@@ -33,7 +36,16 @@ const SERVER_STATUS_POLL_MS = 20000;
 const SERVER_ADDRESS = 'mc.calebwash.com';
 
 type SyncProgress = { phase: string; done: number; total: number };
-type Dialog = 'reset' | 'delete-launcher' | null;
+type UpdateProgress = { phase: string; done: number; total: number };
+type Dialog = 'reset' | 'delete-launcher' | 'update' | null;
+
+const UPDATE_PHASE_LABELS: Record<string, string> = {
+	downloading: 'Downloading update',
+	verifying: 'Checking the download',
+	extracting: 'Unpacking update',
+	installing: 'Installing',
+	done: 'Restarting',
+};
 
 function App() {
 	const toast = useToast();
@@ -47,6 +59,9 @@ function App() {
 	const [serverStatus, setServerStatus] = useState<go_services.ServerStatusResponse | null>(null);
 	const [serverChecked, setServerChecked] = useState(false);
 	const [version, setVersion] = useState('');
+	const [update, setUpdate] = useState<go_services.UpdateStatus | null>(null);
+	const [isUpdating, setIsUpdating] = useState(false);
+	const [updateProgress, setUpdateProgress] = useState<UpdateProgress | null>(null);
 
 	const refreshClientStatus = useCallback(async () => {
 		try {
@@ -69,13 +84,22 @@ function App() {
 
 	useEffect(() => {
 		EventsOn('sync:progress', (p: SyncProgress) => setProgress(p));
-		return () => EventsOff('sync:progress');
+		EventsOn('update:progress', (p: UpdateProgress) => setUpdateProgress(p));
+		return () => {
+			EventsOff('sync:progress');
+			EventsOff('update:progress');
+		};
 	}, []);
 
 	useEffect(() => {
 		refreshClientStatus();
 		refreshServerStatus();
 		GetClientVersion().then(setVersion).catch(() => setVersion(''));
+
+		// Checked once at startup rather than on a timer: this is a launcher
+		// people open, use and close, and each check costs the server a
+		// presigned S3 URL.
+		CheckForClientUpdate().then(setUpdate).catch(() => setUpdate(null));
 
 		const timer = setInterval(refreshServerStatus, SERVER_STATUS_POLL_MS);
 		return () => clearInterval(timer);
@@ -97,6 +121,22 @@ function App() {
 			setIsSyncing(false);
 			setProgress(null);
 			refreshClientStatus();
+		}
+	};
+
+	const applyUpdate = async () => {
+		setDialog(null);
+		setIsUpdating(true);
+		try {
+			await ApplyClientUpdate();
+			// The window closes on its own once the new client is on screen,
+			// so this toast is the last thing shown rather than a lasting state.
+			toast.success('Update installed', 'Restarting into the new version…');
+		} catch (error) {
+			console.error('Failed to update client:', error);
+			toast.error('Update failed', errorText(error));
+			setIsUpdating(false);
+			setUpdateProgress(null);
 		}
 	};
 
@@ -149,7 +189,7 @@ function App() {
 
 	/* ---------------------------------------------------------------- state */
 
-	const busy = isSyncing || isResetting;
+	const busy = isSyncing || isResetting || isUpdating;
 	const percent = progress && progress.total > 0 ? (progress.done / progress.total) * 100 : null;
 	const progressLabel = progress
 		? progress.phase === 'verifying'
@@ -158,6 +198,15 @@ function App() {
 		: isResetting
 			? 'Resetting client'
 			: 'Preparing';
+
+	const updateAvailable = !!update?.updateAvailable;
+	const updatePercent =
+		updateProgress && updateProgress.total > 0
+			? (updateProgress.done / updateProgress.total) * 100
+			: null;
+	const updateLabel = updateProgress
+		? UPDATE_PHASE_LABELS[updateProgress.phase] ?? 'Updating'
+		: 'Preparing update';
 
 	const launcherInstalled = !!clientStatus?.launcherInstalled;
 	const serverOnline = !!serverStatus?.dockerStatus?.running;
@@ -224,6 +273,29 @@ function App() {
 					<img src={logo} alt="CalebsMod" className="hero__logo" />
 					<p className="hero__tag">Private modpack for friends</p>
 				</div>
+
+				{(updateAvailable || isUpdating) && (
+					<section className="update-banner" aria-label="Client update">
+						{isUpdating ? (
+							<Progress label={updateLabel} percent={updatePercent} />
+						) : (
+							<>
+								<UpdateIcon className="update-banner__icon" />
+								<div className="update-banner__text">
+									<strong>Version {update?.latestVersion} is available</strong>
+									<span>You are on v{update?.currentVersion}. Updating takes a few seconds.</span>
+								</div>
+								<button
+									className="btn btn--primary btn--sm"
+									onClick={() => setDialog('update')}
+									disabled={busy}
+								>
+									Update
+								</button>
+							</>
+						)}
+					</section>
+				)}
 
 				<section className="tiles" aria-label="Status">
 					<div className="tile">
@@ -356,6 +428,16 @@ function App() {
 				message="This deletes your CalebsMod instance and all local modpack data, then re-downloads everything from scratch. Your Microsoft login is kept. Close Minecraft first."
 				confirmLabel="Reset client"
 				onConfirm={resetClient}
+				onCancel={() => setDialog(null)}
+			/>
+
+			<ConfirmModal
+				isOpen={dialog === 'update'}
+				tone="neutral"
+				title={`Update to v${update?.latestVersion}?`}
+				message="The launcher downloads the new version, replaces itself and reopens. Your modpack, saves and Microsoft login are untouched. Minecraft can stay open."
+				confirmLabel="Update & restart"
+				onConfirm={applyUpdate}
 				onCancel={() => setDialog(null)}
 			/>
 

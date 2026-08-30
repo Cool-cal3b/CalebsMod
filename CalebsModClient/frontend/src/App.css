@@ -53,6 +53,51 @@
     animation: rise 0.5s var(--ease) 0.1s both;
 }
 
+/* The update strip sits above the status tiles: noticeable enough that a
+   stale client gets fixed, quiet enough that it never blocks playing. */
+.update-banner {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 14px;
+    background: var(--accent-soft);
+    border: 1px solid var(--accent-line);
+    border-radius: var(--r-md);
+    animation: rise 0.5s var(--ease) 0.08s both;
+}
+
+.update-banner__icon {
+    flex: none;
+    width: 20px;
+    height: 20px;
+    color: var(--accent);
+}
+
+.update-banner__text {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.update-banner__text strong {
+    font-size: 0.8438rem;
+    font-weight: 640;
+    color: var(--ink);
+}
+
+.update-banner__text span {
+    font-size: 0.75rem;
+    color: var(--ink-2);
+}
+
+/* While the update runs the strip holds only the progress bar, which needs
+   the full width rather than the icon/text/button row. */
+.update-banner .progress {
+    flex: 1;
+}
+
 .launch-panel {
     padding: 18px;
     display: flex;

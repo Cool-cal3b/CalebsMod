@@ -37,6 +37,13 @@ export const DownloadIcon = ({ className = 'btn__icon' }: IconProps) => (
 	</svg>
 );
 
+export const UpdateIcon = ({ className = 'btn__icon' }: IconProps) => (
+	<svg {...base} className={className}>
+		<path d="M12 21v-12" /><path d="m7 14 5-5 5 5" />
+		<path d="M4.5 5.5h15" />
+	</svg>
+);
+
 export const TrashIcon = ({ className = 'btn__icon' }: IconProps) => (
 	<svg {...base} className={className}>
 		<path d="M4 6h16" /><path d="M9 6V4h6v2" />

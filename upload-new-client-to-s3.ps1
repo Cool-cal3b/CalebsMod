@@ -124,6 +124,16 @@ catch {
 }
 Write-Host ""
 
+# The bootstrapper and the client's self-updater both refuse a download whose
+# digest does not match, but only if there is a digest to compare against. The
+# sidecar next to the zip is where the server reads it from.
+Write-Host "Computing checksum..." -ForegroundColor Yellow
+$sha256 = (Get-FileHash -Path $zipFilePath -Algorithm SHA256).Hash.ToLower()
+$checksumFilePath = "$zipFilePath.sha256"
+Set-Content -Path $checksumFilePath -Value $sha256 -NoNewline -Encoding ascii
+Write-Host "SHA256: $sha256" -ForegroundColor Green
+Write-Host ""
+
 Write-Host "Uploading to S3..." -ForegroundColor Yellow
 $s3Key = "client-releases/$zipFileName"
 $s3Bucket = "calebsmod-downloads"
@@ -146,6 +156,15 @@ try {
         exit 1
     }
     
+    # Uploaded after the zip so a release is never advertised with a digest
+    # that describes a file that is not there yet.
+    aws s3 cp $checksumFilePath "s3://$s3Bucket/$s3Key.sha256" --no-progress
+    
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "Error: checksum upload failed with exit code $LASTEXITCODE" -ForegroundColor Red
+        exit 1
+    }
+    
     Write-Host "Upload completed successfully" -ForegroundColor Green
 }
 catch {
@@ -159,8 +178,9 @@ Set-Content -Path $versionFile -Value $newVersion -NoNewline
 Write-Host "Version file updated to: $newVersion" -ForegroundColor Green
 Write-Host ""
 
-Write-Host "Cleaning up zip file..." -ForegroundColor Yellow
+Write-Host "Cleaning up local artifacts..." -ForegroundColor Yellow
 Remove-Item $zipFilePath -Force
+Remove-Item $checksumFilePath -Force
 Write-Host "Cleanup completed" -ForegroundColor Green
 Write-Host ""
 

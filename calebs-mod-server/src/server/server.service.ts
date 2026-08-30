@@ -247,7 +247,11 @@ export class ServerService {
     return fs.readFileSync(versionFilePath, 'utf-8').trim();
   }
 
-  async getLatestClientRelease(): Promise<{ version: string; downloadUrl: string }> {
+  async getLatestClientRelease(): Promise<{
+    version: string;
+    downloadUrl: string;
+    sha256?: string;
+  }> {
     const versionFilePath = path.join(__dirname, '..', '..', 'CalebsModClientVersion.txt');
     
     let version: string;
@@ -276,13 +280,41 @@ export class ServerService {
         expiresIn: 3600,
       });
 
+      // The digest is what lets the bootstrapper and the client's self-updater
+      // refuse a corrupt download before it replaces a working binary. It is
+      // optional so that releases uploaded before the sidecar existed keep
+      // working; those fall back to a size check on the client side.
+      const sha256 = await this.getReleaseChecksum(s3Key);
+
       return {
         version,
         downloadUrl,
+        ...(sha256 ? { sha256 } : {}),
       };
     } catch (error) {
       console.error('Error generating signed URL:', error);
       throw new Error(`Failed to generate download URL for version ${version}`);
+    }
+  }
+
+  // Reads the ".sha256" sidecar that upload-new-client-to-s3.ps1 writes next to
+  // each release. A missing sidecar is not an error: older releases have none,
+  // and refusing to serve them would strand anyone still on that version.
+  private async getReleaseChecksum(s3Key: string): Promise<string | undefined> {
+    try {
+      const response = await this.s3Client.send(
+        new GetObjectCommand({
+          Bucket: this.S3_BUCKET,
+          Key: `${s3Key}.sha256`,
+        }),
+      );
+
+      const body = await response.Body?.transformToString();
+      const digest = body?.trim().split(/\s+/)[0];
+
+      return digest && /^[0-9a-f]{64}$/i.test(digest) ? digest : undefined;
+    } catch {
+      return undefined;
     }
   }
 

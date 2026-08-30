@@ -184,6 +184,26 @@ export namespace go_services {
 		    return a;
 		}
 	}
+	export class UpdateStatus {
+	    currentVersion: string;
+	    latestVersion: string;
+	    updateAvailable: boolean;
+	    supported: boolean;
+	    error?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new UpdateStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.currentVersion = source["currentVersion"];
+	        this.latestVersion = source["latestVersion"];
+	        this.updateAvailable = source["updateAvailable"];
+	        this.supported = source["supported"];
+	        this.error = source["error"];
+	    }
+	}
 
 }
 
