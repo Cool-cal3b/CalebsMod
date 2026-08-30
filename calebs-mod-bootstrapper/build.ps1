@@ -44,7 +44,10 @@ try {
     $env:GOOS = "windows"
     $env:GOARCH = "amd64"
     
-    go build -ldflags="-s -w" -o $outputExe $goFile
+    # Build the whole package, not a single file: the bootstrapper is split
+    # across calebs-mod-bootstrapper.go and the platform-tagged shortcut_*.go
+    # files, and naming one file makes `go build` ignore the rest.
+    go build -ldflags="-s -w" -o $outputExe .
     
     if ($LASTEXITCODE -ne 0) {
         Write-Host "Error: Build failed with exit code $LASTEXITCODE" -ForegroundColor Red

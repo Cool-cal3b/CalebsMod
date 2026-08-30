@@ -95,10 +95,10 @@ This will create `dist\CalebsModBootstrapper.exe`
 
 ```bash
 # With console window (recommended for debugging)
-go build -ldflags="-s -w" -o CalebsModBootstrapper.exe calebs-mod-bootstrapper.go
+go build -ldflags="-s -w" -o CalebsModBootstrapper.exe .
 
 # Without console window (silent mode)
-go build -ldflags="-s -w -H windowsgui" -o CalebsModBootstrapper.exe calebs-mod-bootstrapper.go
+go build -ldflags="-s -w -H windowsgui" -o CalebsModBootstrapper.exe .
 ```
 
 ### How It Works:
