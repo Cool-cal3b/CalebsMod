@@ -12,6 +12,32 @@ import { PackFileDto } from 'src/modpack/dto/manifest.dto';
 const CLOUDFLARE_DOMAIN = 'calebwash.com';
 const CLOUDFLARE_SUBDOMAIN = 'mc';
 
+// Windows and macOS releases are built on different machines at different
+// times, so each carries its own version number. A shared one would advertise
+// a build that does not exist yet for the other platform.
+//
+// Windows keeps the original, unsuffixed names. Every bootstrapper already in
+// the wild sends no platform at all and must keep resolving to exactly what it
+// resolved to before, so 'windows' is both the default and the empty suffix.
+export type ClientPlatform = 'windows' | 'mac';
+
+const CLIENT_PLATFORMS: Record<ClientPlatform, { suffix: string }> = {
+  windows: { suffix: '' },
+  mac: { suffix: '-mac' },
+};
+
+// The platform reaches us as a query string and is interpolated into a file
+// path and an S3 key, so it is resolved through the table above rather than
+// concatenated. Anything unrecognised is rejected instead of being coerced to
+// the default, which would silently hand a Windows build to a Mac client.
+function resolvePlatform(platform?: string): ClientPlatform {
+  if (!platform) return 'windows';
+  if (platform in CLIENT_PLATFORMS) return platform as ClientPlatform;
+  throw new Error(
+    `Unknown platform "${platform}" (expected one of: ${Object.keys(CLIENT_PLATFORMS).join(', ')})`,
+  );
+}
+
 @Injectable()
 export class ServerService {
   private s3Client: S3Client;
@@ -242,31 +268,47 @@ export class ServerService {
     }
   }
 
-  async getLatestClientVersion(): Promise<string> {
-    const versionFilePath = path.join(__dirname, '..', '..', 'CalebsModClientVersion.txt');
+  // Path of the version file a platform's release number is published in.
+  // Windows is CalebsModClientVersion.txt, unchanged since before there was a
+  // second platform; macOS is CalebsModClientVersion-mac.txt.
+  private versionFilePath(platform: ClientPlatform): string {
+    const { suffix } = CLIENT_PLATFORMS[platform];
+    return path.join(
+      __dirname,
+      '..',
+      '..',
+      `CalebsModClientVersion${suffix}.txt`,
+    );
+  }
+
+  async getLatestClientVersion(platform?: string): Promise<string> {
+    const versionFilePath = this.versionFilePath(resolvePlatform(platform));
     return fs.readFileSync(versionFilePath, 'utf-8').trim();
   }
 
-  async getLatestClientRelease(): Promise<{
+  async getLatestClientRelease(platform?: string): Promise<{
     version: string;
     downloadUrl: string;
     sha256?: string;
   }> {
-    const versionFilePath = path.join(__dirname, '..', '..', 'CalebsModClientVersion.txt');
-    
+    const resolvedPlatform = resolvePlatform(platform);
+    const versionFilePath = this.versionFilePath(resolvedPlatform);
+
     let version: string;
     try {
       version = fs.readFileSync(versionFilePath, 'utf-8').trim();
     } catch (error) {
       console.error('Error reading version file:', error);
-      throw new Error('Unable to read client version file');
+      throw new Error(
+        `Unable to read client version file for platform ${resolvedPlatform}`,
+      );
     }
 
     if (!version || !/^\d+\.\d+$/.test(version)) {
       throw new Error('Invalid version format in version file');
     }
 
-    const fileName = `CalebsModClient-${version}.zip`;
+    const fileName = `CalebsModClient-${version}${CLIENT_PLATFORMS[resolvedPlatform].suffix}.zip`;
     const s3Key = `client-releases/${fileName}`;
 
     console.log(`S3_REGION: ${this.S3_REGION} S3_BUCKET: ${this.S3_BUCKET} s3Key: ${s3Key}`);

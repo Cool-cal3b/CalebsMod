@@ -30,14 +30,17 @@ export class ServerController {
     return await this.serverService.getIpAndPort();
   }
 
+  // `platform` is absent for every bootstrapper released before macOS support
+  // and resolves to Windows, which is what those clients have always been
+  // served.
   @Get('latest-client-version')
-  async getLatestClientVersion() {
-    return await this.serverService.getLatestClientVersion();
+  async getLatestClientVersion(@Query('platform') platform?: string) {
+    return await this.serverService.getLatestClientVersion(platform);
   }
 
   @Get('latest-client-release')
-  async getLatestClientRelease() {
-    return await this.serverService.getLatestClientRelease();
+  async getLatestClientRelease(@Query('platform') platform?: string) {
+    return await this.serverService.getLatestClientRelease(platform);
   }
 
   @Post('start')

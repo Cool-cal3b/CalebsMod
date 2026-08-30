@@ -66,12 +66,17 @@ On subsequent runs, the bootstrapper will:
 
 ### Manual File Locations:
 
-If you need to manually access or remove files:
-- **Bootstrapper files**: `%LOCALAPPDATA%\CalebsMod\`
-- **Client executable**: `%LOCALAPPDATA%\CalebsMod\CalebsModClient.exe`
-- **Version file**: `%LOCALAPPDATA%\CalebsMod\CurrentCalebModClientVersion.txt`
+On Windows the client and its state live in one folder. On macOS they cannot:
+an `.app` has to sit in an Applications folder to be launchable and to appear
+in Spotlight, so the install and the state are two separate directories.
 
-To completely uninstall, simply delete the `%LOCALAPPDATA%\CalebsMod\` folder.
+| | Windows | macOS |
+| --- | --- | --- |
+| State + PrismLauncher | `%LOCALAPPDATA%\CalebsMod\` | `~/Library/Application Support/CalebsMod/` |
+| Client | `%LOCALAPPDATA%\CalebsMod\CalebsModClient.exe` | `~/Applications/CalebsModClient.app` |
+| Version file | `%LOCALAPPDATA%\CalebsMod\CurrentCalebModClientVersion.txt` | `~/Library/Application Support/CalebsMod/CurrentCalebModClientVersion.txt` |
+
+To completely uninstall, delete the folders above.
 
 ---
 
@@ -80,16 +85,34 @@ To completely uninstall, simply delete the `%LOCALAPPDATA%\CalebsMod\` folder.
 ### Building the Bootstrapper:
 
 **Prerequisites:**
-- Go 1.20 or higher installed
-- Windows OS (or cross-compilation setup)
+- Go (see `go.mod` for the required version)
+- The bootstrapper is pure stdlib with no cgo, so it cross-compiles freely
 
-**Build Command:**
+**Windows** — run on any machine:
 
 ```powershell
 .\build.ps1
 ```
 
-This will create `dist\CalebsModBootstrapper.exe`
+Creates `dist\CalebsModBootstrapper.exe`.
+
+**macOS** — must run on a Mac:
+
+```bash
+./build-mac.sh
+```
+
+Creates `dist/CalebsModBootstrapper-mac.zip`, containing a double-clickable
+`CalebsMod Installer.app` plus a `Run in Terminal.command` fallback.
+
+Two steps in that script need macOS itself: `lipo`, which fuses the amd64 and
+arm64 builds into one universal binary, and `ditto`, which is the only archiver
+that reliably round-trips a bundle's symlinks and executable bits. Building on
+macOS is also what gets the binary ad-hoc signed by Go's linker — without a
+signature Apple Silicon refuses to execute it at all.
+
+In practice this runs on the `macos-latest` GitHub Actions runner; see
+`.github/workflows/release-mac-client.yml`.
 
 **Manual Build:**
 
@@ -97,7 +120,7 @@ This will create `dist\CalebsModBootstrapper.exe`
 # With console window (recommended for debugging)
 go build -ldflags="-s -w" -o CalebsModBootstrapper.exe .
 
-# Without console window (silent mode)
+# Without console window (silent mode, Windows)
 go build -ldflags="-s -w -H windowsgui" -o CalebsModBootstrapper.exe .
 ```
 
@@ -135,11 +158,21 @@ Edit these constants in `calebs-mod-bootstrapper.go`:
 
 ```go
 const (
-    ServerURL        = "https://mc.calebwash.com"
-    VersionEndpoint  = "/api/server/latest-client-release"
-    ClientExecutable = "CalebsModClient.exe"
+    ServerURL       = "https://mc.calebwash.com"
+    VersionEndpoint = "/api/server/latest-client-release"
 )
 ```
+
+Everything that differs per OS — install paths, the client's name, how an
+archive is extracted, how the client is launched — lives in `platform.go`
+rather than being scattered through the main file. The client keeps a matching
+copy at `CalebsModClient/go-services/platform.go`; the two must agree, so
+change both together.
+
+The bootstrapper appends `?platform=mac` to the version endpoint on macOS.
+Windows sends no platform parameter at all, which is what every bootstrapper
+released before macOS support did and what the server still reads as Windows —
+so old installs keep working untouched.
 
 ### Important Gotchas Addressed:
 
@@ -172,11 +205,24 @@ const (
 
 ### Update Workflow:
 
-When you release a new client version:
+Each platform releases independently, with its own version number, so a
+Windows-only hotfix does not have to wait for a Mac build (and vice versa).
 
-1. Build the Wails client: `wails build` in CalebsModClient directory
-2. Upload to S3: `.\upload-new-client-to-s3.ps1`
-3. Commit the version bump
-4. Friends run the existing bootstrapper - it will auto-update!
+**Windows** — from the Windows dev box:
 
-No need to redistribute the bootstrapper unless you change the bootstrapper code itself.
+1. `.\upload-new-client-to-s3.ps1` (builds, packages, uploads, bumps
+   `CalebsModClientVersion.txt`)
+2. Commit the version bump
+
+**macOS** — run the "Release macOS client" workflow from the Actions tab. It
+builds on a `macos-latest` runner, uploads
+`CalebsModClient-<ver>-mac.zip`, and commits the bump to
+`CalebsModClientVersion-mac.txt` itself.
+
+Note this repo is private, so macOS runner minutes bill at a **10x
+multiplier** — roughly 25-30 builds a month on the free tier. Use
+`skip_upload: true` when you only want to check that a build still compiles.
+
+Either way, friends run the existing bootstrapper and it auto-updates. No need
+to redistribute the bootstrapper unless you change the bootstrapper code
+itself.

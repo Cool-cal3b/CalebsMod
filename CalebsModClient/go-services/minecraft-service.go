@@ -90,7 +90,7 @@ func CheckLauncherInstalled() (bool, error) {
 		return false, nil
 	}
 
-	prismExe := filepath.Join(prismPath, "prismlauncher.exe")
+	prismExe := PrismExecutablePath(prismPath)
 	if _, err := os.Stat(prismExe); os.IsNotExist(err) {
 		return false, nil
 	}
@@ -108,12 +108,10 @@ func DeleteLauncher() (bool, error) {
 		return true, nil
 	}
 
-	if runtime.GOOS == "windows" {
-		if err := killProcessByName("prismlauncher.exe"); err != nil {
-			fmt.Printf("Warning: failed to kill PrismLauncher process: %v\n", err)
-		}
-		time.Sleep(500 * time.Millisecond)
+	if err := KillPrismLauncher(); err != nil {
+		fmt.Printf("Warning: failed to stop PrismLauncher: %v\n", err)
 	}
+	time.Sleep(500 * time.Millisecond)
 
 	if err := os.RemoveAll(prismPath); err != nil {
 		return false, fmt.Errorf("failed to remove PrismLauncher directory: %w. Make sure PrismLauncher is closed", err)
@@ -133,13 +131,13 @@ func ResetClient() (bool, error) {
 		return false, fmt.Errorf("failed to get PrismLauncher path: %w", err)
 	}
 
-	// Prism holds file locks on the instance while it is running.
-	if runtime.GOOS == "windows" {
-		if err := killProcessByName("prismlauncher.exe"); err != nil {
-			fmt.Printf("Warning: failed to kill PrismLauncher process: %v\n", err)
-		}
-		time.Sleep(500 * time.Millisecond)
+	// Prism holds file locks on the instance while it is running. This used to
+	// be skipped off Windows, which meant a Mac reset quietly raced a running
+	// launcher and half-deleted the instance.
+	if err := KillPrismLauncher(); err != nil {
+		fmt.Printf("Warning: failed to stop PrismLauncher: %v\n", err)
 	}
+	time.Sleep(500 * time.Millisecond)
 
 	instancePath := filepath.Join(prismPath, "instances", INSTANCE_NAME)
 
@@ -173,7 +171,7 @@ func ResetClient() (bool, error) {
 func createInstanceOnDisk(prismPath string) error {
 	instancePath := filepath.Join(prismPath, "instances", INSTANCE_NAME)
 
-	if err := os.MkdirAll(filepath.Join(instancePath, "minecraft"), 0755); err != nil {
+	if err := os.MkdirAll(GameRootPath(instancePath), 0755); err != nil {
 		return fmt.Errorf("failed to create instance directory: %w", err)
 	}
 
@@ -224,7 +222,7 @@ func SyncMods() (bool, error) {
 		return false, fmt.Errorf("instance not found. Please install the launcher first")
 	}
 
-	minecraftPath := filepath.Join(instancePath, "minecraft")
+	minecraftPath := GameRootPath(instancePath)
 	if err := os.MkdirAll(minecraftPath, 0755); err != nil {
 		return false, fmt.Errorf("failed to create minecraft directory: %w", err)
 	}
@@ -416,22 +414,6 @@ func addServerToServersFile(minecraftPath string) error {
 	return nil
 }
 
-func killProcessByName(processName string) error {
-	if runtime.GOOS != "windows" {
-		return fmt.Errorf("only supported on Windows")
-	}
-
-	cmd := exec.Command("taskkill", "/F", "/IM", processName)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		if strings.Contains(string(output), "not found") {
-			return nil
-		}
-		return fmt.Errorf("taskkill failed: %w, output: %s", err, string(output))
-	}
-	return nil
-}
-
 func InstallLauncher() (bool, error) {
 	prismPath, err := getPrismLauncherPath()
 	if err != nil {
@@ -457,7 +439,7 @@ func ensurePrismLauncherInstalled() (string, error) {
 		return "", err
 	}
 
-	prismExe := filepath.Join(prismPath, "prismlauncher.exe")
+	prismExe := PrismExecutablePath(prismPath)
 	if _, err := os.Stat(prismExe); err == nil {
 		return prismPath, nil
 	}
@@ -469,46 +451,39 @@ func ensurePrismLauncherInstalled() (string, error) {
 	return prismPath, nil
 }
 
+// getPrismLauncherPath is both where Prism is installed and the data directory
+// it is launched with (-d), so instances live alongside the launcher rather
+// than in Prism's own per-user location. That keeps a CalebsMod install
+// self-contained and leaves a separately-installed Prism untouched.
 func getPrismLauncherPath() (string, error) {
-	switch runtime.GOOS {
-	case "windows":
-		localAppData := os.Getenv("LOCALAPPDATA")
-		if localAppData == "" {
-			return "", fmt.Errorf("LOCALAPPDATA environment variable not set")
-		}
-		return filepath.Join(localAppData, "CalebsMod", "PrismLauncher"), nil
-	case "darwin":
-		homeDir, err := os.UserHomeDir()
-		if err != nil {
-			return "", err
-		}
-		return filepath.Join(homeDir, "Library", "Application Support", "CalebsMod", "PrismLauncher"), nil
-	case "linux":
-		homeDir, err := os.UserHomeDir()
-		if err != nil {
-			return "", err
-		}
-		return filepath.Join(homeDir, ".local", "share", "CalebsMod", "PrismLauncher"), nil
-	default:
-		return "", fmt.Errorf("unsupported operating system: %s", runtime.GOOS)
+	dir, err := AppDataDir()
+	if err != nil {
+		return "", err
 	}
+	return filepath.Join(dir, "PrismLauncher"), nil
 }
 
-func downloadAndInstallPrism(destPath string) error {
-	release, err := getLatestPrismRelease()
-	if err != nil {
-		return fmt.Errorf("failed to get latest release: %w", err)
-	}
-
-	var downloadURL string
-	var assetName string
-
+// selectPrismAsset picks the right PrismLauncher release asset for the running
+// platform, returning its URL and filename (empty when nothing matches).
+//
+// The two platforms publish quite different things. Windows ships several
+// per-toolchain zips and we want the portable one, never the "setup"
+// installer. macOS ships a single universal .tar.gz covering both Intel and
+// Apple Silicon, plus a "Legacy" variant for older systems - so there is no
+// architecture to match there, only a macOS version floor. The current build is
+// preferred and Legacy is the fallback, which is the right way round: a modern
+// Mac running Legacy works but gives up features, whereas an old Mac running
+// the current build does not launch at all.
+func selectPrismAsset(release *GitHubRelease) (url string, name string) {
 	arch := runtime.GOARCH
 
-	for _, asset := range release.Assets {
-		name := asset.Name
-		if runtime.GOOS == "windows" && filepath.Ext(name) == ".zip" {
-			lowerName := strings.ToLower(name)
+	switch runtime.GOOS {
+	case "windows":
+		for _, asset := range release.Assets {
+			if filepath.Ext(asset.Name) != ".zip" {
+				continue
+			}
+			lowerName := strings.ToLower(asset.Name)
 
 			if !strings.Contains(lowerName, "windows") ||
 				!strings.Contains(lowerName, "portable") ||
@@ -517,30 +492,57 @@ func downloadAndInstallPrism(destPath string) error {
 			}
 
 			if arch == "amd64" && strings.Contains(lowerName, "msvc") && !strings.Contains(lowerName, "arm64") {
-				downloadURL = asset.BrowserDownloadURL
-				assetName = asset.Name
-				break
-			} else if arch == "arm64" && strings.Contains(lowerName, "arm64") {
-				downloadURL = asset.BrowserDownloadURL
-				assetName = asset.Name
-				break
+				return asset.BrowserDownloadURL, asset.Name
+			}
+			if arch == "arm64" && strings.Contains(lowerName, "arm64") {
+				return asset.BrowserDownloadURL, asset.Name
 			}
 		}
+
+	case "darwin":
+		var legacyURL, legacyName string
+
+		for _, asset := range release.Assets {
+			lowerName := strings.ToLower(asset.Name)
+
+			if !strings.Contains(lowerName, "macos") || !strings.HasSuffix(lowerName, ".tar.gz") {
+				continue
+			}
+
+			if strings.Contains(lowerName, "legacy") {
+				legacyURL, legacyName = asset.BrowserDownloadURL, asset.Name
+				continue
+			}
+			return asset.BrowserDownloadURL, asset.Name
+		}
+
+		return legacyURL, legacyName
 	}
+
+	return "", ""
+}
+
+func downloadAndInstallPrism(destPath string) error {
+	release, err := getLatestPrismRelease()
+	if err != nil {
+		return fmt.Errorf("failed to get latest release: %w", err)
+	}
+
+	downloadURL, assetName := selectPrismAsset(release)
 
 	if downloadURL == "" {
 		availableAssets := make([]string, len(release.Assets))
 		for i, a := range release.Assets {
 			availableAssets[i] = a.Name
 		}
-		return fmt.Errorf("could not find compatible Windows portable release for %s/%s. Available assets: %v",
-			runtime.GOOS, arch, availableAssets)
+		return fmt.Errorf("could not find a compatible PrismLauncher release for %s/%s. Available assets: %v",
+			runtime.GOOS, runtime.GOARCH, availableAssets)
 	}
 
 	tempDir := os.TempDir()
-	zipPath := filepath.Join(tempDir, assetName)
+	archivePath := filepath.Join(tempDir, assetName)
 
-	if err := downloadFile(zipPath, downloadURL); err != nil {
+	if err := downloadFile(archivePath, downloadURL); err != nil {
 		return fmt.Errorf("failed to download: %w", err)
 	}
 
@@ -548,11 +550,14 @@ func downloadAndInstallPrism(destPath string) error {
 		return fmt.Errorf("failed to create directory: %w", err)
 	}
 
-	if err := unzip(zipPath, destPath); err != nil {
-		return fmt.Errorf("failed to unzip: %w", err)
+	// ExtractArchive rather than the local unzip(): the macOS asset is a
+	// .tar.gz, and what is inside it is an .app bundle whose symlinks and
+	// executable bits have to survive or Prism will not launch.
+	if err := ExtractArchive(archivePath, destPath); err != nil {
+		return fmt.Errorf("failed to extract %s: %w", assetName, err)
 	}
 
-	os.Remove(zipPath)
+	os.Remove(archivePath)
 	return nil
 }
 
@@ -592,47 +597,6 @@ func downloadFile(filepath string, url string) error {
 	return err
 }
 
-func unzip(src, dest string) error {
-	r, err := zip.OpenReader(src)
-	if err != nil {
-		return err
-	}
-	defer r.Close()
-
-	for _, f := range r.File {
-		fpath := filepath.Join(dest, f.Name)
-
-		if f.FileInfo().IsDir() {
-			os.MkdirAll(fpath, os.ModePerm)
-			continue
-		}
-
-		if err := os.MkdirAll(filepath.Dir(fpath), os.ModePerm); err != nil {
-			return err
-		}
-
-		outFile, err := os.OpenFile(fpath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.Mode())
-		if err != nil {
-			return err
-		}
-
-		rc, err := f.Open()
-		if err != nil {
-			outFile.Close()
-			return err
-		}
-
-		_, err = io.Copy(outFile, rc)
-		outFile.Close()
-		rc.Close()
-
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 func checkInstanceExists(prismPath string) (bool, error) {
 	instancesPath := filepath.Join(prismPath, "instances", INSTANCE_NAME)
 	instanceCfgPath := filepath.Join(instancesPath, "instance.cfg")
@@ -650,7 +614,7 @@ func createInstanceViaPrismUI(prismPath string) error {
 	}
 
 	modpackPath := filepath.Join(prismPath, "CalebsMod.zip")
-	prismExe := filepath.Join(prismPath, "prismlauncher.exe")
+	prismExe := PrismExecutablePath(prismPath)
 
 	cmd := exec.Command(prismExe, "-d", prismPath, "-I", modpackPath)
 
@@ -730,7 +694,7 @@ func addFileToZip(zipWriter *zip.Writer, filename string, data []byte) error {
 }
 
 func launchPrismInstance(prismPath, instanceName, serverAddress string) error {
-	prismExe := filepath.Join(prismPath, "prismlauncher.exe")
+	prismExe := PrismExecutablePath(prismPath)
 
 	cmd := exec.Command(prismExe, "-d", prismPath, "-l", instanceName, "-s", serverAddress)
 
@@ -742,7 +706,10 @@ func launchPrismInstance(prismPath, instanceName, serverAddress string) error {
 }
 
 func syncModsToInstance(instancePath string) error {
-	minecraftPath := filepath.Join(instancePath, ".minecraft")
+	// This used to hardcode ".minecraft" while every other caller used
+	// "minecraft", so on Windows it seeded an empty second directory Prism
+	// never looked at. GameRootPath is the single answer both now use.
+	minecraftPath := GameRootPath(instancePath)
 	modsPath := filepath.Join(minecraftPath, "mods")
 	configPath := filepath.Join(minecraftPath, "config")
 

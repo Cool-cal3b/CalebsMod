@@ -1,14 +1,13 @@
 package go_services
 
 import (
-	"archive/zip"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -24,6 +23,11 @@ const (
 	// Windows refuses to delete a running executable but allows renaming it,
 	// which is what makes an in-process self-update possible at all. The
 	// displaced binary keeps this suffix until a later launch can remove it.
+	//
+	// macOS has no such restriction - a running .app can be replaced outright -
+	// but the same rename-aside dance is used there anyway, because it is what
+	// makes the swap recoverable: an interruption leaves either the old install
+	// or the new one, never a half-written one.
 	oldExeSuffix = ".old"
 
 	versionFileName = "CurrentCalebModClientVersion.txt"
@@ -76,23 +80,46 @@ func reportUpdateProgress(phase string, done, total int64) {
 	}
 }
 
-// appDataDir is the directory the bootstrapper installs into. The version file
-// lives here regardless of where the executable itself was started from, so
-// the bootstrapper and the self-updater always read the same number.
-func appDataDir() (string, error) {
-	localAppData := os.Getenv("LOCALAPPDATA")
-	if localAppData == "" {
-		return "", fmt.Errorf("LOCALAPPDATA is not set")
-	}
-	return filepath.Join(localAppData, "CalebsMod"), nil
-}
-
 func versionFilePath() (string, error) {
-	dir, err := appDataDir()
+	// The version file lives in the bootstrapper's data directory regardless of
+	// where the executable itself was started from, so the bootstrapper and the
+	// self-updater always read the same number. On macOS those are genuinely
+	// different places - state in ~/Library, the bundle in ~/Applications.
+	dir, err := AppDataDir()
 	if err != nil {
 		return "", err
 	}
 	return filepath.Join(dir, versionFileName), nil
+}
+
+// installTarget is the thing an update replaces: the executable on Windows,
+// the whole .app bundle on macOS.
+//
+// This is the distinction that makes filepath.Dir(os.Executable()) wrong on a
+// Mac. There the running binary is at
+// <app>/Contents/MacOS/CalebsModClient, so treating its parent as the install
+// directory would stage the download inside the bundle being replaced and swap
+// only the inner Mach-O, leaving the bundle's Info.plist and resources behind.
+func installTarget(exePath string) string {
+	if runtime.GOOS != "darwin" {
+		return exePath
+	}
+
+	// Walk up out of Contents/MacOS to the bundle root. Falls back to the
+	// executable itself if this build is not running from a bundle at all,
+	// which is the case for `wails dev` and a bare `go build`.
+	dir := filepath.Dir(exePath)
+	for dir != "" && dir != string(filepath.Separator) {
+		if strings.HasSuffix(dir, ".app") {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return exePath
 }
 
 // parseVersion splits the "X.YY" release format into comparable numbers.
@@ -132,7 +159,7 @@ func isNewerVersion(current, latest string) bool {
 func FetchLatestRelease() (ReleaseInfo, error) {
 	var release ReleaseInfo
 
-	resp, err := MakeGetRequest("/api/server/latest-client-release")
+	resp, err := MakeGetRequest(LatestReleaseEndpoint())
 	if err != nil {
 		return release, err
 	}
@@ -213,7 +240,9 @@ func ApplyClientUpdate() (string, error) {
 		return "", fmt.Errorf("no newer version to install (installed %s, server has %s)", current, release.Version)
 	}
 
-	installDir := filepath.Dir(exePath)
+	// What gets replaced: the .exe on Windows, the .app bundle on macOS.
+	target := installTarget(exePath)
+	installDir := filepath.Dir(target)
 	staging := filepath.Join(installDir, updateStagingDir)
 
 	os.RemoveAll(staging)
@@ -235,17 +264,17 @@ func ApplyClientUpdate() (string, error) {
 
 	reportUpdateProgress("extracting", 0, 0)
 	extractDir := filepath.Join(staging, "extracted")
-	if err := extractZipSafely(zipPath, extractDir); err != nil {
+	if err := ExtractZip(zipPath, extractDir); err != nil {
 		return "", fmt.Errorf("could not unpack the update: %w", err)
 	}
 
 	newExe := findClientExecutable(extractDir)
 	if newExe == "" {
-		return "", fmt.Errorf("the downloaded release did not contain %s", filepath.Base(exePath))
+		return "", fmt.Errorf("the downloaded release did not contain %s", ClientAppName())
 	}
 
 	reportUpdateProgress("installing", 0, 0)
-	if err := swapExecutable(exePath, newExe); err != nil {
+	if err := swapExecutable(target, newExe); err != nil {
 		return "", err
 	}
 
@@ -265,16 +294,21 @@ func ApplyClientUpdate() (string, error) {
 	}
 
 	reportUpdateProgress("done", 1, 1)
-	return exePath, nil
+
+	// Relaunching wants the bundle on macOS, not the Mach-O inside it.
+	return target, nil
 }
 
 // swapExecutable puts newExe at exePath, moving the running binary aside. On
 // failure it restores the original so the user is never left without a client.
+//
+// Every path here is RemoveAll rather than Remove because on macOS the thing
+// being swapped is an .app bundle - a directory - and Remove refuses those.
 func swapExecutable(exePath, newExe string) error {
 	oldPath := exePath + oldExeSuffix
 
 	// A leftover from a previous update would block the rename below.
-	os.Remove(oldPath)
+	os.RemoveAll(oldPath)
 
 	if err := os.Rename(exePath, oldPath); err != nil {
 		return fmt.Errorf("could not move the current client aside: %w", err)
@@ -380,77 +414,33 @@ func verifyReleaseZip(path, expectedSha256 string) error {
 	return nil
 }
 
-// extractZipSafely unpacks src into dest, rejecting entries that would escape
-// the destination directory.
-func extractZipSafely(src, dest string) error {
-	r, err := zip.OpenReader(src)
-	if err != nil {
-		return err
-	}
-	defer r.Close()
-
-	if err := os.MkdirAll(dest, 0755); err != nil {
-		return err
-	}
-
-	root, err := filepath.Abs(dest)
-	if err != nil {
-		return err
-	}
-
-	for _, f := range r.File {
-		target := filepath.Join(root, filepath.FromSlash(f.Name))
-
-		// Reject "../" entries: a release zip arrives over the network and
-		// must not be able to write outside the folder chosen for it.
-		rel, err := filepath.Rel(root, target)
-		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
-			return fmt.Errorf("release contains an unsafe path: %s", f.Name)
-		}
-
-		if f.FileInfo().IsDir() {
-			if err := os.MkdirAll(target, 0755); err != nil {
-				return err
-			}
-			continue
-		}
-
-		if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
-			return err
-		}
-
-		rc, err := f.Open()
-		if err != nil {
-			return err
-		}
-
-		out, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.Mode())
-		if err != nil {
-			rc.Close()
-			return err
-		}
-
-		_, copyErr := io.Copy(out, rc)
-		out.Close()
-		rc.Close()
-		if copyErr != nil {
-			return copyErr
-		}
-	}
-
-	return nil
-}
-
-// findClientExecutable locates the client binary inside an extracted release,
+// findClientExecutable locates the client inside an extracted release,
 // tolerating the extra top-level folder some zip tools introduce.
+//
+// On macOS the thing being looked for is a directory - the .app bundle - so
+// the walk cannot simply skip directories the way the Windows search does.
 func findClientExecutable(dir string) string {
 	var found string
+	wantBundle := runtime.GOOS == "darwin"
 
 	filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
-		if err != nil || info.IsDir() {
+		if err != nil {
 			return nil
 		}
+
 		name := strings.ToLower(info.Name())
+
+		if wantBundle {
+			if info.IsDir() && strings.HasSuffix(name, ".app") && strings.Contains(name, "calebsmod") {
+				found = path
+				return filepath.SkipAll
+			}
+			return nil
+		}
+
+		if info.IsDir() {
+			return nil
+		}
 		if strings.HasSuffix(name, ".exe") && strings.Contains(name, "calebsmod") {
 			found = path
 			return filepath.SkipAll
@@ -471,7 +461,7 @@ func CleanupStaleUpdateFiles() {
 		return
 	}
 
-	installDir := filepath.Dir(exePath)
+	installDir := filepath.Dir(installTarget(exePath))
 	os.RemoveAll(filepath.Join(installDir, updateStagingDir))
 
 	entries, err := os.ReadDir(installDir)
@@ -479,16 +469,16 @@ func CleanupStaleUpdateFiles() {
 		return
 	}
 	for _, entry := range entries {
-		if !entry.IsDir() && strings.HasSuffix(entry.Name(), oldExeSuffix) {
-			os.Remove(filepath.Join(installDir, entry.Name()))
+		// No IsDir() guard: on macOS the displaced install is a whole .app
+		// bundle, so skipping directories here would leak one per update.
+		if strings.HasSuffix(entry.Name(), oldExeSuffix) {
+			os.RemoveAll(filepath.Join(installDir, entry.Name()))
 		}
 	}
 }
 
-// RelaunchClient starts the freshly installed binary. The child is not tied to
+// RelaunchClient starts the freshly installed client. The child is not tied to
 // this process, so it keeps running once the old window closes.
 func RelaunchClient(exePath string) error {
-	cmd := exec.Command(exePath)
-	cmd.Dir = filepath.Dir(exePath)
-	return cmd.Start()
+	return LaunchApp(exePath)
 }

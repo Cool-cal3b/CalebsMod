@@ -42,12 +42,12 @@ func GetClientStatus() (ClientStatus, error) {
 		return status, err
 	}
 
-	if _, err := os.Stat(filepath.Join(prismPath, "prismlauncher.exe")); err == nil {
+	if _, err := os.Stat(PrismExecutablePath(prismPath)); err == nil {
 		status.LauncherInstalled = true
 	}
 
 	instancePath := filepath.Join(prismPath, "instances", INSTANCE_NAME)
-	minecraftPath := filepath.Join(instancePath, "minecraft")
+	minecraftPath := GameRootPath(instancePath)
 
 	if _, err := os.Stat(filepath.Join(instancePath, "instance.cfg")); err == nil {
 		status.InstanceExists = true

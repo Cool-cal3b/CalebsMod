@@ -87,13 +87,15 @@ Give friends the CalebsModClient installer. They:
 ## How It Works
 
 1. Friend opens CalebsMod app, clicks "Install Launcher"
-2. App downloads PrismLauncher portable to `%LOCALAPPDATA%\CalebsMod\PrismLauncher`
+2. App downloads PrismLauncher to the CalebsMod data folder
+   (`%LOCALAPPDATA%\CalebsMod\PrismLauncher` on Windows,
+   `~/Library/Application Support/CalebsMod/PrismLauncher` on macOS)
 3. Friend logs into Microsoft account in PrismLauncher (one-time)
 4. Friend clicks "Launch Minecraft"
 5. App creates "CalebsMod" instance (if doesn't exist)
 6. App syncs mods to instance
 7. App fetches server address (mc.calebwash.com or your public IP)
-8. App launches: `prismlauncher.exe -l CalebsMod -s mc.calebwash.com`
+8. App launches PrismLauncher: `-d <data folder> -l CalebsMod -s mc.calebwash.com`
 9. Minecraft opens and joins your server automatically
 
 ## Why PrismLauncher?

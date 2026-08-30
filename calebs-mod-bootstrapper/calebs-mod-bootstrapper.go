@@ -1,7 +1,6 @@
 package main
 
 import (
-	"archive/zip"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -9,17 +8,15 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 )
 
 const (
-	ServerURL        = "https://mc.calebwash.com"
-	VersionEndpoint  = "/api/server/latest-client-release"
-	ClientExecutable = "CalebsModClient.exe"
-	VersionFileName  = "CurrentCalebModClientVersion.txt"
+	ServerURL       = "https://mc.calebwash.com"
+	VersionEndpoint = "/api/server/latest-client-release"
+	VersionFileName = "CurrentCalebModClientVersion.txt"
 
 	// Everything downloaded or unpacked lives under this one directory inside
 	// the install folder, so a failed run leaves a single thing to clean up
@@ -47,27 +44,44 @@ func main() {
 	fmt.Println("=== Caleb's Mod Client Bootstrapper ===")
 	fmt.Println()
 
-	appDataPath, err := getAppDataPath()
+	dataPath, err := appDataPath()
 	if err != nil {
-		fmt.Printf("Error: Failed to determine AppData path: %v\n", err)
+		fmt.Printf("Error: Failed to determine the data directory: %v\n", err)
 		waitForUser()
 		os.Exit(1)
 	}
 
-	fmt.Printf("Using AppData path: %s\n", appDataPath)
+	// On Windows these are the same folder. On macOS the client has to live in
+	// ~/Applications to be launchable and searchable, while its state stays
+	// under ~/Library, so they are two directories there.
+	installedClient, err := clientPath()
+	if err != nil {
+		fmt.Printf("Error: Failed to determine the install directory: %v\n", err)
+		waitForUser()
+		os.Exit(1)
+	}
+
+	fmt.Printf("Data directory: %s\n", dataPath)
+	fmt.Printf("Client:         %s\n", installedClient)
 	fmt.Println()
 
-	if err := ensureAppDataExists(appDataPath); err != nil {
-		fmt.Printf("Error: Failed to create AppData directory: %v\n", err)
+	if err := os.MkdirAll(dataPath, 0755); err != nil {
+		fmt.Printf("Error: Failed to create the data directory: %v\n", err)
+		waitForUser()
+		os.Exit(1)
+	}
+
+	if err := os.MkdirAll(filepath.Dir(installedClient), 0755); err != nil {
+		fmt.Printf("Error: Failed to create the install directory: %v\n", err)
 		waitForUser()
 		os.Exit(1)
 	}
 
 	// Sweep whatever a previous run or a client self-update left behind before
 	// doing anything else, so leftovers cannot accumulate across releases.
-	cleanupLeftovers(appDataPath)
+	cleanupLeftovers(dataPath, installedClient)
 
-	currentVersion, err := getCurrentVersion(appDataPath)
+	currentVersion, err := getCurrentVersion(dataPath)
 	if err != nil {
 		fmt.Printf("Warning: Could not read current version: %v\n", err)
 		currentVersion = "0.00"
@@ -80,7 +94,7 @@ func main() {
 	if err != nil {
 		fmt.Printf("Error: Failed to check for updates: %v\n", err)
 		fmt.Println("\nAttempting to launch existing client...")
-		launchClient(appDataPath)
+		launchClient(installedClient, dataPath)
 		waitForUser()
 		os.Exit(1)
 	}
@@ -93,10 +107,10 @@ func main() {
 	// to carry a rollback down as readily as an update up. (The client's own
 	// in-app update prompt is the opposite: it only offers strictly newer
 	// versions, so nobody is nagged to "update" backwards.)
-	if currentVersion == release.Version && clientExists(appDataPath) {
+	if currentVersion == release.Version && clientIsInstalled(installedClient) {
 		fmt.Println("You are running the latest version!")
 		fmt.Println("Launching client...")
-		launchClient(appDataPath)
+		launchClient(installedClient, dataPath)
 		os.Exit(0)
 	}
 
@@ -108,10 +122,10 @@ func main() {
 	fmt.Println("Starting update process...")
 	fmt.Println()
 
-	if err := performUpdate(appDataPath, release); err != nil {
+	if err := performUpdate(dataPath, installedClient, release); err != nil {
 		fmt.Printf("Error: Update failed: %v\n", err)
 		fmt.Println("\nAttempting to launch existing client...")
-		launchClient(appDataPath)
+		launchClient(installedClient, dataPath)
 		waitForUser()
 		os.Exit(1)
 	}
@@ -119,25 +133,8 @@ func main() {
 	fmt.Println()
 	fmt.Println("Update completed successfully!")
 	fmt.Println("Launching client...")
-	launchClient(appDataPath)
+	launchClient(installedClient, dataPath)
 	os.Exit(0)
-}
-
-func getAppDataPath() (string, error) {
-	localAppData := os.Getenv("LOCALAPPDATA")
-	if localAppData == "" {
-		return "", fmt.Errorf("LOCALAPPDATA environment variable not set")
-	}
-	return filepath.Join(localAppData, "CalebsMod"), nil
-}
-
-func ensureAppDataExists(appDataPath string) error {
-	return os.MkdirAll(appDataPath, 0755)
-}
-
-func clientExists(appDataPath string) bool {
-	info, err := os.Stat(filepath.Join(appDataPath, ClientExecutable))
-	return err == nil && !info.IsDir() && info.Size() >= MinReleaseZipBytes
 }
 
 // cleanupLeftovers deletes the scratch files an install can leave behind. The
@@ -147,29 +144,59 @@ func clientExists(appDataPath string) bool {
 // later, and the bootstrapper always runs with no client of its own to hold
 // the file open. Failures are ignored - an old client that happens to be open
 // right now is collected on the next run instead.
-func cleanupLeftovers(appDataPath string) {
-	os.RemoveAll(filepath.Join(appDataPath, StagingDirName))
+//
+// Both directories are swept because they are only the same folder on Windows;
+// on macOS the staging directory sits beside the bundle in ~/Applications while
+// the version file stays under ~/Library.
+func cleanupLeftovers(dataPath, installedClient string) {
+	installDir := filepath.Dir(installedClient)
 
-	// Scratch paths used by earlier bootstrapper versions.
-	os.RemoveAll(filepath.Join(appDataPath, "client_new"))
-	os.RemoveAll(filepath.Join(appDataPath, "client_old"))
-	os.Remove(filepath.Join(appDataPath, "client.zip"))
-	os.Remove(filepath.Join(appDataPath, "client.zip.download"))
-	os.Remove(filepath.Join(appDataPath, "client.zip.download.sha256"))
+	for _, dir := range distinct(dataPath, installDir) {
+		os.RemoveAll(filepath.Join(dir, StagingDirName))
 
-	entries, err := os.ReadDir(appDataPath)
-	if err != nil {
-		return
-	}
-	for _, entry := range entries {
-		if !entry.IsDir() && strings.HasSuffix(entry.Name(), OldExeSuffix) {
-			os.Remove(filepath.Join(appDataPath, entry.Name()))
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+		for _, entry := range entries {
+			// No IsDir() guard: on macOS the displaced install is a whole .app
+			// bundle, so skipping directories would leak one per update.
+			if strings.HasSuffix(entry.Name(), OldExeSuffix) {
+				os.RemoveAll(filepath.Join(dir, entry.Name()))
+			}
 		}
 	}
+
+	// Scratch paths used by earlier bootstrapper versions. Windows-only by
+	// definition - no Mac client has ever run one of those.
+	os.RemoveAll(filepath.Join(dataPath, "client_new"))
+	os.RemoveAll(filepath.Join(dataPath, "client_old"))
+	os.Remove(filepath.Join(dataPath, "client.zip"))
+	os.Remove(filepath.Join(dataPath, "client.zip.download"))
+	os.Remove(filepath.Join(dataPath, "client.zip.download.sha256"))
 }
 
-func getCurrentVersion(appDataPath string) (string, error) {
-	versionFile := filepath.Join(appDataPath, VersionFileName)
+// distinct returns the given paths with duplicates dropped, so a caller can
+// treat "one directory" and "two directories" uniformly.
+func distinct(paths ...string) []string {
+	var out []string
+	for _, p := range paths {
+		seen := false
+		for _, existing := range out {
+			if existing == p {
+				seen = true
+				break
+			}
+		}
+		if !seen {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+func getCurrentVersion(dataPath string) (string, error) {
+	versionFile := filepath.Join(dataPath, VersionFileName)
 	data, err := os.ReadFile(versionFile)
 	if err != nil {
 		return "", err
@@ -178,7 +205,7 @@ func getCurrentVersion(appDataPath string) (string, error) {
 }
 
 func getLatestRelease() (*ReleaseInfo, error) {
-	url := ServerURL + VersionEndpoint
+	url := ServerURL + versionEndpoint()
 
 	client := &http.Client{
 		Timeout: 30 * time.Second,
@@ -213,8 +240,11 @@ func getLatestRelease() (*ReleaseInfo, error) {
 // to leave a truncated executable and no way back, and a copy fails outright
 // when the client is already running, which silently stranded anyone who left
 // the client open. A rename succeeds in both cases.
-func performUpdate(appDataPath string, release *ReleaseInfo) error {
-	staging := filepath.Join(appDataPath, StagingDirName)
+func performUpdate(dataPath, installedClient string, release *ReleaseInfo) error {
+	// Staging sits beside the install target, not in the data directory, so
+	// that the rename below stays within one directory and therefore one
+	// volume. On macOS those are two different places.
+	staging := filepath.Join(filepath.Dir(installedClient), StagingDirName)
 
 	os.RemoveAll(staging)
 	if err := os.MkdirAll(staging, 0755); err != nil {
@@ -238,24 +268,23 @@ func performUpdate(appDataPath string, release *ReleaseInfo) error {
 
 	fmt.Println("\nStep 3/4: Extracting new client...")
 	extractPath := filepath.Join(staging, "extracted")
-	if err := extractZip(zipPath, extractPath); err != nil {
+	if err := extractRelease(zipPath, extractPath); err != nil {
 		return fmt.Errorf("extraction failed: %w", err)
 	}
 	fmt.Println("Extraction complete!")
 
 	fmt.Println("\nStep 4/4: Installing new client...")
-	newClientExe := findExecutableInDir(extractPath)
-	if newClientExe == "" {
-		return fmt.Errorf("could not find client executable in downloaded files")
+	newClient := findClientInDir(extractPath)
+	if newClient == "" {
+		return fmt.Errorf("could not find the client in the downloaded files")
 	}
 
-	clientPath := filepath.Join(appDataPath, ClientExecutable)
-	replacedRunning, err := installExecutable(clientPath, newClientExe)
+	replacedRunning, err := installExecutable(installedClient, newClient)
 	if err != nil {
 		return err
 	}
 
-	if err := os.WriteFile(filepath.Join(appDataPath, VersionFileName), []byte(release.Version), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dataPath, VersionFileName), []byte(release.Version), 0644); err != nil {
 		fmt.Printf("Warning: Could not update version file: %v\n", err)
 	}
 
@@ -270,9 +299,12 @@ func performUpdate(appDataPath string, release *ReleaseInfo) error {
 // installExecutable moves newExe to clientPath, displacing whatever is there.
 // It reports whether the replaced binary was still locked by a running
 // process, which is the case worth telling the user about.
+// Every removal here is RemoveAll rather than Remove, because on macOS the
+// thing being displaced is an .app bundle - a directory - and Remove refuses
+// those.
 func installExecutable(clientPath, newExe string) (bool, error) {
 	oldPath := clientPath + OldExeSuffix
-	os.Remove(oldPath)
+	os.RemoveAll(oldPath)
 
 	existed := false
 	if _, err := os.Stat(clientPath); err == nil {
@@ -298,8 +330,13 @@ func installExecutable(clientPath, newExe string) (bool, error) {
 
 	// A successful delete means nothing held the file open. A failure means a
 	// client is still running from it; it gets collected on the next run.
-	stillRunning := os.Remove(oldPath) != nil
-	return stillRunning, nil
+	//
+	// This inference is Windows-only. macOS happily deletes a bundle that is
+	// currently executing, so a failure there means something genuinely wrong
+	// rather than "a client is open", and reporting it as the latter would
+	// print a confusing warning after every single Mac update.
+	failedToDelete := os.RemoveAll(oldPath) != nil
+	return failedToDelete && !canDeleteRunningClient(), nil
 }
 
 func downloadFile(dest string, url string) error {
@@ -408,105 +445,21 @@ func verifyDownload(path string, expectedSha256 string) error {
 	return nil
 }
 
-// extractZip unpacks src into dest, rejecting entries that would escape the
-// destination. Using archive/zip rather than shelling out to Expand-Archive
-// keeps the bootstrapper working where PowerShell is locked down, and drops a
-// process launch that antivirus tends to take an interest in.
-func extractZip(src, dest string) error {
-	r, err := zip.OpenReader(src)
-	if err != nil {
-		return err
-	}
-	defer r.Close()
-
-	if err := os.MkdirAll(dest, 0755); err != nil {
-		return err
-	}
-
-	root, err := filepath.Abs(dest)
-	if err != nil {
-		return err
-	}
-
-	for _, f := range r.File {
-		target := filepath.Join(root, filepath.FromSlash(f.Name))
-
-		rel, err := filepath.Rel(root, target)
-		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
-			return fmt.Errorf("release contains an unsafe path: %s", f.Name)
-		}
-
-		if f.FileInfo().IsDir() {
-			if err := os.MkdirAll(target, 0755); err != nil {
-				return err
-			}
-			continue
-		}
-
-		if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
-			return err
-		}
-
-		rc, err := f.Open()
-		if err != nil {
-			return err
-		}
-
-		out, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.Mode())
-		if err != nil {
-			rc.Close()
-			return err
-		}
-
-		_, copyErr := io.Copy(out, rc)
-		out.Close()
-		rc.Close()
-		if copyErr != nil {
-			return copyErr
-		}
-	}
-
-	return nil
-}
-
-func findExecutableInDir(dir string) string {
-	var exePath string
-
-	filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return nil
-		}
-		if !info.IsDir() && strings.HasSuffix(strings.ToLower(info.Name()), ".exe") {
-			if strings.Contains(strings.ToLower(info.Name()), "calebsmod") {
-				exePath = path
-				return filepath.SkipAll
-			}
-		}
-		return nil
-	})
-
-	return exePath
-}
-
-func launchClient(appDataPath string) {
-	clientPath := filepath.Join(appDataPath, ClientExecutable)
-
+func launchClient(clientPath, workingDir string) {
 	if _, err := os.Stat(clientPath); err != nil {
-		fmt.Printf("Warning: Client executable not found at %s\n", clientPath)
+		fmt.Printf("Warning: Client not found at %s\n", clientPath)
 		return
 	}
 
-	// Make the client findable from the Start menu. This runs on every launch
-	// so that installs predating the feature pick it up, and a deleted
-	// shortcut comes back; it is a no-op once the shortcut is in place.
+	// Make the client findable from the Start menu (Windows) or Spotlight
+	// (macOS). This runs on every launch so that installs predating the
+	// feature pick it up, and a deleted shortcut comes back; it is a no-op
+	// once the entry is in place.
 	if err := ensureClientShortcut(clientPath); err != nil {
-		fmt.Printf("Note: could not create the Start Menu shortcut: %v\n", err)
+		fmt.Printf("Note: could not register the client for search: %v\n", err)
 	}
 
-	cmd := exec.Command(clientPath)
-	cmd.Dir = appDataPath
-
-	if err := cmd.Start(); err != nil {
+	if err := launchInstalledClient(clientPath, workingDir); err != nil {
 		fmt.Printf("Warning: Failed to launch client: %v\n", err)
 		fmt.Println("You can manually launch the client from:")
 		fmt.Println(clientPath)

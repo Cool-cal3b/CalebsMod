@@ -1,6 +1,8 @@
-//go:build !windows
+//go:build !windows && !darwin
 
 package go_services
 
-// EnsureClientShortcut is a no-op off Windows, where there is no Start Menu.
+// EnsureClientShortcut has no meaning on platforms with no convention for
+// where an installed application advertises itself. The stub keeps the package
+// building on a Linux dev machine.
 func EnsureClientShortcut() error { return nil }

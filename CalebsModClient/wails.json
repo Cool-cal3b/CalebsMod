@@ -9,5 +9,12 @@
   "author": {
     "name": "Caleb Washburn",
     "email": "number1caleb@gmail.com"
+  },
+  "info": {
+    "companyName": "Caleb Washburn",
+    "productName": "CalebsMod Client",
+    "productVersion": "1.0.0",
+    "copyright": "Copyright © 2026 Caleb Washburn",
+    "comments": "Launcher and updater for Caleb's Mod Minecraft server"
   }
 }

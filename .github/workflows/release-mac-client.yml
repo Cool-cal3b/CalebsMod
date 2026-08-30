@@ -1,0 +1,186 @@
+# This workflow is the macOS counterpart of upload-new-client-to-s3.ps1.
+# Read that script alongside this file - the version-bump, checksum and
+# upload-ordering rules are the same, deliberately.
+
+name: Release macOS client
+
+# Manual only. Releases are a decision, not a consequence of pushing, and this
+# repo is private - macOS runners bill at a 10x minute multiplier, so nothing
+# here should fire on every commit.
+on:
+  workflow_dispatch:
+    inputs:
+      skip_upload:
+        description: "Build and package only - do not upload to S3 or bump the version"
+        type: boolean
+        default: false
+
+jobs:
+  release:
+    runs-on: macos-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # The bootstrapper's go.mod, not the client's: this job builds both, and
+      # the bootstrapper requires the newer toolchain of the two.
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: calebs-mod-bootstrapper/go.mod
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Wails
+        run: |
+          go install github.com/wailsapp/wails/v2/cmd/wails@v2.11.0
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      # The mac version file is separate from the Windows one so the two
+      # platforms can be released independently. A shared number would
+      # advertise a build that does not exist yet for whichever OS was not
+      # built this time.
+      - name: Compute next version
+        id: version
+        run: |
+          set -euo pipefail
+          VERSION_FILE=calebs-mod-server/CalebsModClientVersion-mac.txt
+          CURRENT=$(tr -d '[:space:]' < "$VERSION_FILE")
+
+          if [[ ! "$CURRENT" =~ ^([0-9]+)\.([0-9]+)$ ]]; then
+            echo "Invalid version format '$CURRENT' (expected X.YY)" >&2
+            exit 1
+          fi
+
+          MAJOR=${BASH_REMATCH[1]}
+          MINOR=$((10#${BASH_REMATCH[2]}))
+          MINOR=$((MINOR + 1))
+          if [ "$MINOR" -gt 99 ]; then
+            MAJOR=$((MAJOR + 1))
+            MINOR=0
+          fi
+          NEXT=$(printf '%d.%02d' "$MAJOR" "$MINOR")
+
+          echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
+          echo "next=$NEXT" >> "$GITHUB_OUTPUT"
+          echo "Releasing $CURRENT -> $NEXT"
+
+      # darwin/universal so one artifact covers Intel and Apple Silicon: no
+      # architecture matrix in S3, and no way for a friend to pick wrong.
+      #
+      # Building on macOS is also what ad-hoc signs the bundle, without which
+      # Apple Silicon refuses to execute it at all. This is why the build cannot
+      # simply be cross-compiled from the Windows dev box.
+      - name: Build client
+        working-directory: CalebsModClient
+        run: wails build -platform darwin/universal -clean
+
+      - name: Package
+        id: package
+        working-directory: CalebsModClient/build/bin
+        run: |
+          set -euo pipefail
+          VERSION=${{ steps.version.outputs.next }}
+          ZIP="CalebsModClient-$VERSION-mac.zip"
+
+          APP=$(find . -maxdepth 1 -name '*.app' | head -1)
+          if [ -z "$APP" ]; then
+            echo "No .app produced by the build" >&2
+            ls -la
+            exit 1
+          fi
+          echo "Packaging $APP"
+
+          # ditto, not zip: an .app contains symlinks and depends on the
+          # executable bit surviving. Anything else produces an archive that
+          # extracts without error and a client that will not launch. The
+          # bootstrapper extracts with ditto for the same reason.
+          ditto -c -k --sequesterRsrc --keepParent "$APP" "$ZIP"
+
+          shasum -a 256 "$ZIP" | cut -d' ' -f1 > "$ZIP.sha256"
+
+          echo "zip=$ZIP" >> "$GITHUB_OUTPUT"
+          echo "sha256=$(cat "$ZIP.sha256")" >> "$GITHUB_OUTPUT"
+          ls -lh "$ZIP"
+
+      # Proves the archive round-trips before it is published. A bundle that
+      # loses its symlinks in packaging fails here rather than on a friend's
+      # Mac, which is the only other place it would show up.
+      - name: Verify the packaged bundle
+        working-directory: CalebsModClient/build/bin
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/verify
+          ditto -x -k "${{ steps.package.outputs.zip }}" /tmp/verify
+
+          APP=$(find /tmp/verify -maxdepth 1 -name '*.app' | head -1)
+          BIN="$APP/Contents/MacOS/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Contents/Info.plist")"
+
+          test -x "$BIN" || { echo "Extracted bundle has no executable at $BIN" >&2; exit 1; }
+          codesign --verify --verbose "$APP"
+          echo "Bundle verified: $BIN"
+
+      - name: Build macOS bootstrapper
+        working-directory: calebs-mod-bootstrapper
+        run: ./build-mac.sh
+
+      # Handed back as a workflow artifact so a new bootstrapper can be
+      # distributed without a local Mac. It is not uploaded to S3: friends
+      # download it once by hand, and it updates nothing but itself.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CalebsModBootstrapper-mac
+          path: calebs-mod-bootstrapper/dist/CalebsModBootstrapper-mac.zip
+          if-no-files-found: error
+
+      - name: Upload to S3
+        if: ${{ !inputs.skip_upload }}
+        working-directory: CalebsModClient/build/bin
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.S3_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: us-west-1
+        run: |
+          set -euo pipefail
+          ZIP=${{ steps.package.outputs.zip }}
+          BUCKET=calebsmod-downloads
+          KEY="client-releases/$ZIP"
+
+          aws s3 cp "$ZIP" "s3://$BUCKET/$KEY" --no-progress
+
+          # After the zip, never before: the server reads this sidecar to
+          # publish a digest, and a digest that describes a file which is not
+          # there yet would make every client refuse the download.
+          aws s3 cp "$ZIP.sha256" "s3://$BUCKET/$KEY.sha256" --no-progress
+
+          echo "Published s3://$BUCKET/$KEY"
+
+      # Last, so a failed build or upload never advertises a version that was
+      # not published. The server reads this file to answer
+      # /api/server/latest-client-release?platform=mac.
+      - name: Commit version bump
+        if: ${{ !inputs.skip_upload }}
+        run: |
+          set -euo pipefail
+          printf '%s' "${{ steps.version.outputs.next }}" \
+            > calebs-mod-server/CalebsModClientVersion-mac.txt
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add calebs-mod-server/CalebsModClientVersion-mac.txt
+          git commit -m "Release macOS client ${{ steps.version.outputs.next }}"
+          git push
+
+      - name: Summary
+        run: |
+          {
+            echo "### macOS client ${{ steps.version.outputs.next }}"
+            echo
+            echo "- Archive: \`${{ steps.package.outputs.zip }}\`"
+            echo "- SHA256: \`${{ steps.package.outputs.sha256 }}\`"
+            echo "- Uploaded: ${{ !inputs.skip_upload }}"
+          } >> "$GITHUB_STEP_SUMMARY"

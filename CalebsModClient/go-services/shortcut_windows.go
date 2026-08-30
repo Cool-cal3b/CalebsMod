@@ -35,7 +35,7 @@ const (
 // Every failure is returned for the caller to log and shrug off. A missing
 // Start Menu entry is a papercut; it must never break launching or updating.
 func EnsureClientShortcut() error {
-	installDir, err := appDataDir()
+	installDir, err := InstallDir()
 	if err != nil {
 		return err
 	}

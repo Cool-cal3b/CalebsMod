@@ -162,8 +162,8 @@ func TestExtractZipSafely(t *testing.T) {
 	})
 
 	dest := filepath.Join(dir, "out")
-	if err := extractZipSafely(zipPath, dest); err != nil {
-		t.Fatalf("extractZipSafely: %v", err)
+	if err := ExtractZip(zipPath, dest); err != nil {
+		t.Fatalf("ExtractZip: %v", err)
 	}
 
 	got, err := os.ReadFile(filepath.Join(dest, "CalebsModClient.exe"))
@@ -185,7 +185,7 @@ func TestExtractZipSafelyRejectsPathTraversal(t *testing.T) {
 	})
 
 	dest := filepath.Join(dir, "out")
-	err := extractZipSafely(zipPath, dest)
+	err := ExtractZip(zipPath, dest)
 	if err == nil {
 		t.Fatal("expected extraction to be refused")
 	}

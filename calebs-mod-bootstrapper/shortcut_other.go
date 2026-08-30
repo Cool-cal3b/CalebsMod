@@ -1,7 +1,8 @@
-//go:build !windows
+//go:build !windows && !darwin
 
 package main
 
-// ensureClientShortcut only has meaning on Windows, where the Start Menu is.
-// The stub keeps the bootstrapper building on a non-Windows dev machine.
+// ensureClientShortcut has no meaning on platforms with no convention for
+// where an installed application advertises itself. The stub keeps the
+// bootstrapper building on a Linux dev machine.
 func ensureClientShortcut(string) error { return nil }
