@@ -79,6 +79,25 @@ jobs:
         working-directory: CalebsModClient
         run: wails build -platform darwin/universal -clean
 
+      # Apple Silicon refuses to execute an arm64 binary carrying no signature
+      # at all. Go's linker ad-hoc signs each slice as it builds it, but the
+      # lipo that fuses them into a universal binary invalidates that, and
+      # Wails does not re-sign afterwards - so without this step the bundle
+      # builds and packages cleanly and then will not start on any M-series
+      # Mac.
+      #
+      # Ad-hoc (`-s -`) is all that is needed to satisfy that requirement. It
+      # is not a Developer ID and does not appease Gatekeeper, which is fine:
+      # the client is fetched by the bootstrapper over plain HTTP and so is
+      # never quarantined, and Gatekeeper only gates quarantined downloads.
+      - name: Ad-hoc sign the bundle
+        working-directory: CalebsModClient/build/bin
+        run: |
+          set -euo pipefail
+          APP=$(find . -maxdepth 1 -name '*.app' | head -1)
+          codesign --force --sign - --timestamp=none "$APP"
+          codesign --verify --strict --verbose=2 "$APP"
+
       - name: Package
         id: package
         working-directory: CalebsModClient/build/bin

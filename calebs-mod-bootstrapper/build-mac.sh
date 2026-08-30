@@ -106,6 +106,20 @@ exec "\$DIR/$APP_NAME.app/Contents/MacOS/$BINARY_NAME"
 CMD
 chmod +x "$PAYLOAD_DIR/Run in Terminal.command"
 
+# Apple Silicon refuses to execute an arm64 binary carrying no signature at
+# all. Go's linker ad-hoc signs each slice as it builds it, but the lipo above
+# invalidates that - so without this the binary builds fine and is then killed
+# on launch on any M-series Mac. Ad-hoc (`-s -`) is all that requirement needs;
+# it is not a Developer ID and does not stop Gatekeeper asking on first open.
+#
+# Signed after the bundle is fully assembled, innermost first: signing the
+# bundle seals its contents, so anything written afterwards would break the
+# seal it just recorded.
+echo "Ad-hoc signing..."
+codesign --force --sign - --timestamp=none "$APP_DIR/Contents/MacOS/$BINARY_NAME"
+codesign --force --sign - --timestamp=none "$APP_DIR"
+codesign --verify --strict --verbose=2 "$APP_DIR"
+
 # ditto, not zip: it is the only one that reliably round-trips a bundle's
 # symlinks and executable bits. A bundle zipped with anything else extracts
 # without error and then will not launch.
