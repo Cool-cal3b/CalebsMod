@@ -256,6 +256,14 @@ func ApplyClientUpdate() (string, error) {
 		fmt.Printf("Warning: could not record the new version: %v\n", err)
 	}
 
+	// A user who only ever updates from inside the app never re-runs the
+	// bootstrapper, so this is the point where a pre-shortcut install, or one
+	// whose shortcut was deleted, gets a Start Menu entry back. No-op once it
+	// exists, and the target path is unchanged by the swap above.
+	if err := EnsureClientShortcut(); err != nil {
+		fmt.Printf("Note: could not create the Start Menu shortcut: %v\n", err)
+	}
+
 	reportUpdateProgress("done", 1, 1)
 	return exePath, nil
 }

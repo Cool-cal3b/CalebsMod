@@ -3,6 +3,7 @@ package main
 import (
 	go_services "CalebsModClient/go-services"
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -33,6 +34,15 @@ func (m *MinecraftService) startup(ctx context.Context) {
 	// startup rather than right after the swap is deliberate: the old file is
 	// still open until the process that launched us exits.
 	go go_services.CleanupStaleUpdateFiles()
+
+	// Keep the Start menu entry alive on every launch: this heals a deleted
+	// shortcut and backfills installs that predate it. It is a no-op once the
+	// shortcut is present.
+	go func() {
+		if err := go_services.EnsureClientShortcut(); err != nil {
+			fmt.Printf("Note: could not create the Start Menu shortcut: %v\n", err)
+		}
+	}()
 }
 
 func (m *MinecraftService) StartMinecraftClient() (bool, error) {

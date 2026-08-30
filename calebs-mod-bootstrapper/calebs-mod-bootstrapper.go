@@ -496,6 +496,13 @@ func launchClient(appDataPath string) {
 		return
 	}
 
+	// Make the client findable from the Start menu. This runs on every launch
+	// so that installs predating the feature pick it up, and a deleted
+	// shortcut comes back; it is a no-op once the shortcut is in place.
+	if err := ensureClientShortcut(clientPath); err != nil {
+		fmt.Printf("Note: could not create the Start Menu shortcut: %v\n", err)
+	}
+
 	cmd := exec.Command(clientPath)
 	cmd.Dir = appDataPath
 
