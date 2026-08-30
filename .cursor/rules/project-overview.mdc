@@ -12,8 +12,8 @@ Private modded Minecraft server for friends. Caleb runs the backend on his home 
 ```
 Friend's PC                          Caleb's PC (home server)
 ┌─────────────────────┐              ┌──────────────────────────────────┐
-│ CalebsModBootstrapper│──HTTPS──────▶│ mc.calebwash.com (Caddy → :3000) │
-│  (distributed exe)   │              │  calebs-mod-server (NestJS API)   │
+│ CalebsModBootstrapper│──HTTPS──────▶│ mc.calebwash.com (Caddy → :31265)│
+│  (Win exe / Mac app) │              │  calebs-mod-server (NestJS API)   │
 └──────────┬──────────┘              │    ├─ modpack sync / whitelist     │
            │ downloads client         │    ├─ Docker Minecraft (25565)    │
            ▼                          │    └─ S3 presigned client URLs    │
@@ -28,25 +28,37 @@ Friend's PC                          Caleb's PC (home server)
 
 ### `calebs-mod-bootstrapper/` — What friends receive
 
-- **Purpose**: Single small Go exe distributed to friends. Checks for client updates, downloads from S3 via the API, launches `CalebsModClient.exe`.
-- **Key file**: `calebs-mod-bootstrapper.go`
-- **Local install path**: `%LOCALAPPDATA%\CalebsMod\`
+- **Purpose**: Single small Go binary distributed to friends. Checks for client updates, downloads from S3 via the API, launches the client.
+- **Key files**: `calebs-mod-bootstrapper.go` (flow), `platform.go` (everything OS-specific)
+- **Install paths** — Windows keeps state and client in one folder; macOS cannot, because an `.app` must live in an Applications folder to be launchable and Spotlight-indexed:
+
+  | | Windows | macOS |
+  |---|---|---|
+  | State + Prism | `%LOCALAPPDATA%\CalebsMod\` | `~/Library/Application Support/CalebsMod/` |
+  | Client | same folder, `CalebsModClient.exe` | `~/Applications/CalebsModClient.app` |
+
 - **Important**: Friends never get the Wails client directly — only this bootstrapper. Redistribute bootstrapper only when bootstrapper code changes; client updates are automatic.
-- **Build**: `.\build.ps1` → `dist\CalebsModBootstrapper.exe`
+- **Build**: `.\build.ps1` → `dist\CalebsModBootstrapper.exe`; `./build-mac.sh` (on macOS) → `dist/CalebsModBootstrapper-mac.zip`
+- **macOS gotchas** (all of these have already bitten once):
+  - Bundles must be extracted/packed with `ditto`, never `archive/zip` or `Compress-Archive` — those drop symlinks and the exec bit, producing a bundle that extracts cleanly and then won't launch.
+  - `lipo` invalidates the ad-hoc signature Go's linker applies, and Apple Silicon refuses unsigned arm64 code. Every universal build must `codesign --force --sign -` afterwards.
+  - `.sh` files authored on Windows land in git as `100644`; CI invoking `./script.sh` gets "Permission denied". Fix with `git update-index --chmod=+x`.
 
 ### `CalebsModClient/` — Desktop launcher (auto-downloaded)
 
 - **Purpose**: Wails (Go) + React desktop app. Installs portable PrismLauncher, syncs mods from the API, launches Minecraft with auto-join via `--server` flag.
 - **Stack**: Go backend (`go-services/`, `app.go`, `admin.go`) + React frontend (`frontend/src/`)
 - **Key flows**:
-  - Install PrismLauncher → `%LOCALAPPDATA%\CalebsMod\PrismLauncher`
+  - Install PrismLauncher → `<data dir>/PrismLauncher`
   - Create "CalebsMod" instance (Forge 1.20.1)
   - Sync mods via revision-based API (`/api/modpack/sync/:fromRevision`)
   - Fetch server address from `/api/server/ip-and-port`, launch with `-s mc.calebwash.com`
 - **Admin panel**: JWT auth via stored admin secret; server start/stop, modpack upload, whitelist, DNS update
 - **Dev**: `wails dev` with `CALEBS_MOD_ENV=dev` → API at `http://localhost:3001`
 - **Prod API URL**: `https://mc.calebwash.com` (see `go-services/utils.go`)
-- **Build**: `wails build` → `build/bin/CalebsModClient.exe`
+- **Build**: `wails build` → `build/bin/CalebsModClient.exe`; macOS is built only in CI (`wails build -platform darwin/universal`) since it needs a Mac + the macOS SDK
+- **Cross-platform**: `go-services/platform.go` owns every OS difference (paths, Prism executable name, archive extraction, launch). Nothing outside it should branch on `runtime.GOOS` to pick a filename. Verify ports with `GOOS=darwin go build ./...` from Windows — it catches missing build-tag files for free.
+- **Prism layout differs per OS**: the launcher binary is `prismlauncher.exe` vs `Prism Launcher.app/Contents/MacOS/prismlauncher`, and the instance game dir is `minecraft` on Windows but `.minecraft` on macOS/Linux. Use `PrismExecutablePath()` / `GameRootPath()`, never literals.
 
 ### `calebs-mod-server/` — Control plane (runs on Caleb's PC)
 
@@ -55,9 +67,44 @@ Friend's PC                          Caleb's PC (home server)
 - **Key modules**: `modpack/`, `server/`, `access/`, `auth/`, `docker/`, `rcon/`, `database/`
 - **Storage**: `storage/pack-files/` (SHA256-keyed), `data/calebs-mod.db` (includes `app_settings` for revision pause), `minecraft-data/` (Docker volume)
 - **Minecraft**: `itzg/minecraft-server` Docker image, Forge 1.20.1, ports 25565 + 25575 (RCON)
-- **Client version**: `CalebsModClientVersion.txt` — read by `/api/server/latest-client-release` to return version + S3 presigned URL
-- **Dev**: `CALEBS_MOD_ENV=dev` defaults to port **3001**; prod uses port **3000**
+- **Client version**: `CalebsModClientVersion.txt` (Windows) and `CalebsModClientVersion-mac.txt` (macOS) — read by `/api/server/latest-client-release[?platform=mac]` to return version + S3 presigned URL. No `platform` param means Windows, so bootstrappers predating macOS support keep working.
+- **Dev**: `CALEBS_MOD_ENV=dev` defaults to port **3001**; prod reads `PORT` from `.env` (currently **31265**)
 - **Secrets**: `.env` (ADMIN_SECRET, JWT_SECRET, RCON_PASSWORD, S3 keys, Cloudflare tokens)
+
+#### Deploying it — IMPORTANT, not obvious
+
+**There is no remote host.** `mc.calebwash.com` is Caleb's own Windows PC: Caddy (`C:\caddy`, always running) terminates HTTPS and reverse-proxies to `127.0.0.1:31265`, where a plain `node dist/main` process is listening. "Deploy" means rebuild and restart that local process — nothing is pushed anywhere.
+
+```powershell
+# 1. Get the code you intend to serve (see the git pull note below)
+git pull
+
+# 2. Rebuild — do this BEFORE stopping anything, so a failed build costs no downtime
+cd G:\Projects\CalebsMod\calebs-mod-server
+npm run build            # nest build → dist/
+
+# 3. Find and stop ONLY the live server
+Get-NetTCPConnection -State Listen -LocalPort 31265 | ForEach-Object {
+    Stop-Process -Id $_.OwningProcess -Force
+}
+
+# 4. Start detached
+Start-Process powershell -ArgumentList @(
+    '-NoProfile','-ExecutionPolicy','Bypass','-File',
+    'G:\Projects\CalebsMod\calebs-mod-server\start-background.ps1'
+) -WindowStyle Hidden
+
+# 5. Verify through Caddy, not just locally
+curl.exe -s "https://mc.calebwash.com/api/server/latest-client-release"
+```
+
+Notes that cost time if you miss them:
+
+- **Several unrelated `node.exe` processes run on this machine** (Vite dev server on 5199, OpenAI Codex runtimes). Never blanket `Stop-Process -Name node`. Select by listening port, or check `CommandLine` for `dist/main`.
+- **Startup takes ~15s** before the port is listening. Poll rather than assuming failure.
+- **`git pull` matters more than it looks.** The version files are read from disk *per request*, and the macOS release workflow bumps `CalebsModClientVersion-mac.txt` **on GitHub**. Until this machine pulls, the API keeps advertising the old version and hands out a presigned URL for an S3 object that doesn't exist. No restart is needed after pulling a version file — only after code changes.
+- `start-background.ps1` writes `.server.pid`, but that is the *PowerShell wrapper's* PID (UTF-16 encoded), not node's. Don't trust it for killing the server.
+- Logs append to `calebs-mod-server/server.log` via `Start-Transcript`.
 
 ### `my-mods/` — Custom Forge mods (reserved, empty)
 
@@ -69,26 +116,39 @@ Friend's PC                          Caleb's PC (home server)
 | Script | Purpose |
 |--------|---------|
 | `start-dev.ps1` | Starts server (port 3001) + client in dev mode |
-| `upload-new-client-to-s3.ps1` | Builds client, bumps version, uploads zip to S3 |
+| `upload-new-client-to-s3.ps1` | **Windows only.** Builds client, bumps version, uploads zip to S3 |
+| `calebs-mod-server/start-background.ps1` | Starts prod API detached (`node dist/main`), logs to `server.log` |
 | `start_or_update_caddy.ps1` | Restarts Caddy reverse proxy at `C:\caddy` |
+| `.github/workflows/release-mac-client.yml` | **macOS releases.** Manual (`workflow_dispatch`) on a `macos-latest` runner |
 
 ## External Resources
 
 | Resource | Used by | Purpose |
 |----------|---------|---------|
-| **AWS S3** (`calebsmod-downloads`, `us-west-1`) | Server, bootstrapper | Client release zips at `client-releases/CalebsModClient-X.YY.zip` |
+| **AWS S3** (`calebsmod-downloads`, `us-west-1`) | Server, bootstrapper | Release zips at `client-releases/CalebsModClient-X.YY.zip` (Windows) and `-X.YY-mac.zip` (macOS), each with a `.sha256` sidecar |
 | **Cloudflare DNS** | Server | Dynamic A record for `mc.calebwash.com` |
-| **Caddy** (`C:\caddy\Caddyfile`) | Prod infra | HTTPS reverse proxy to NestJS on port 3000 |
-| **PrismLauncher** (GitHub releases) | Client | Portable launcher download |
+| **Caddy** (`C:\caddy\Caddyfile`) | Prod infra | HTTPS reverse proxy → `127.0.0.1:31265` |
+| **GitHub Actions** (public repo, free macOS minutes) | macOS releases | Builds/signs/uploads the Mac client; needs `S3_ACCESS_KEY_ID` + `S3_SECRET_ACCESS_KEY` secrets |
+| **PrismLauncher** (GitHub releases) | Client | Launcher download — Windows portable `.zip`, macOS universal `.tar.gz` |
 | **Docker Desktop** | Server | Runs Minecraft container |
-| **Router port forwarding** | Prod infra | Ports **25565** (MC) and **3000** (API) |
+| **Router port forwarding** | Prod infra | **25565** (Minecraft) and **80/443** (Caddy) |
 
 ## Release Workflow (Client Updates)
 
-1. Make client changes → `wails build` (or let upload script build)
-2. Run `.\upload-new-client-to-s3.ps1` — bumps `CalebsModClientVersion.txt`, uploads zip to S3
-3. Commit version bump
-4. Friends re-run bootstrapper → auto-downloads new client
+Each platform releases independently with its own version number, so a Windows
+hotfix never waits on a Mac build. The two are expected to drift.
+
+**Windows** — from this PC:
+1. Run `.\upload-new-client-to-s3.ps1` — builds, bumps `CalebsModClientVersion.txt`, uploads zip + checksum
+2. Commit the version bump
+
+**macOS** — Actions tab → "Release macOS client" → Run workflow:
+1. Builds `darwin/universal` on a `macos-latest` runner, ad-hoc signs, packs with `ditto`
+2. Uploads `CalebsModClient-X.YY-mac.zip` + `.sha256`, then commits the bump to `CalebsModClientVersion-mac.txt`
+3. **`git pull` on this machine afterwards** — the API serves that file from local disk, so until you pull it advertises a version whose S3 object doesn't exist
+4. `skip_upload: true` builds without publishing, for checking a build still compiles
+
+Either way, friends re-run the bootstrapper (or take the in-app update) and get the new client.
 
 ## Modpack Sync (Brief)
 
@@ -110,6 +170,9 @@ Use while iterating on the modpack before any clients are connected — avoids p
 | | Dev | Prod |
 |---|-----|------|
 | Env var | `CALEBS_MOD_ENV=dev` | unset |
-| API URL | `http://localhost:3001` | `https://mc.calebwash.com` |
+| API URL | `http://localhost:3001` | `https://mc.calebwash.com` → Caddy → `127.0.0.1:31265` |
+| Runs as | `nest start --watch` | detached `node dist/main` (see "Deploying it") |
 | Minecraft | Docker (same) | Docker on Caleb's PC |
 | Client distribution | local build | S3 via bootstrapper |
+
+Both run on the same machine. "Prod" is not remote — it is this PC with Caddy in front.
