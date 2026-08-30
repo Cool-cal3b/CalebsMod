@@ -158,6 +158,23 @@
     font-variant-numeric: tabular-nums;
 }
 
+.home__client-state {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.7188rem;
+    font-weight: 560;
+}
+
+/* Separates the state from the version number without a literal divider. */
+.home__client-state::before {
+    content: "";
+    width: 1px;
+    height: 10px;
+    margin-right: 2px;
+    background: var(--line-strong);
+}
+
 @keyframes rise {
     from {
         opacity: 0;

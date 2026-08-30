@@ -60,6 +60,7 @@ function App() {
 	const [serverChecked, setServerChecked] = useState(false);
 	const [version, setVersion] = useState('');
 	const [update, setUpdate] = useState<go_services.UpdateStatus | null>(null);
+	const [updateChecked, setUpdateChecked] = useState(false);
 	const [isUpdating, setIsUpdating] = useState(false);
 	const [updateProgress, setUpdateProgress] = useState<UpdateProgress | null>(null);
 
@@ -99,7 +100,10 @@ function App() {
 		// Checked once at startup rather than on a timer: this is a launcher
 		// people open, use and close, and each check costs the server a
 		// presigned S3 URL.
-		CheckForClientUpdate().then(setUpdate).catch(() => setUpdate(null));
+		CheckForClientUpdate()
+			.then(setUpdate)
+			.catch(() => setUpdate(null))
+			.finally(() => setUpdateChecked(true));
 
 		const timer = setInterval(refreshServerStatus, SERVER_STATUS_POLL_MS);
 		return () => clearInterval(timer);
@@ -200,6 +204,30 @@ function App() {
 			: 'Preparing';
 
 	const updateAvailable = !!update?.updateAvailable;
+
+	// The footer says where the client stands even when there is nothing to do,
+	// so "no banner" reads as "checked, you are current" rather than as "never
+	// looked". A dev build has no version to compare and stays silent.
+	const clientState = (() => {
+		if (isUpdating) return { text: 'Updating…', tone: 't-warn', dot: 'dot--warn', title: '' };
+		if (!updateChecked) return { text: 'Checking…', tone: 't-off', dot: '', title: '' };
+		if (!update || !update.supported) return null;
+		if (update.error)
+			return {
+				text: 'Update check failed',
+				tone: 't-off',
+				dot: 'dot--off',
+				title: update.error,
+			};
+		if (update.updateAvailable)
+			return {
+				text: `v${update.latestVersion} available`,
+				tone: 't-warn',
+				dot: 'dot--warn',
+				title: `You are on v${update.currentVersion}`,
+			};
+		return { text: 'Up to date', tone: 't-ok', dot: 'dot--ok', title: 'You have the latest client' };
+	})();
 	const updatePercent =
 		updateProgress && updateProgress.total > 0
 			? (updateProgress.done / updateProgress.total) * 100
@@ -416,6 +444,12 @@ function App() {
 				</span>
 				<span className="spacer" />
 				{version && <span className="home__version">v{version}</span>}
+				{clientState && (
+					<span className={`home__client-state ${clientState.tone}`} title={clientState.title}>
+						{clientState.dot && <span className={`dot ${clientState.dot}`} />}
+						{clientState.text}
+					</span>
+				)}
 				<Link className="btn btn--ghost btn--sm" to="/admin">
 					<ShieldIcon />
 					Admin
