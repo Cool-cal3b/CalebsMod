@@ -26,9 +26,9 @@ export function IsLoggedIn():Promise<boolean>;
 
 export function Login():Promise<void>;
 
-export function SelectAndUploadModpackZip():Promise<go_services.ModpackUploadResponse>;
-
 export function RestartServer():Promise<go_services.ServerStatus>;
+
+export function SelectAndUploadModpackZip():Promise<go_services.ModpackUploadResponse>;
 
 export function SetAdminKey(arg1:string):Promise<void>;
 
@@ -38,8 +38,8 @@ export function StopServer():Promise<go_services.ServerStatus>;
 
 export function UpdateDns():Promise<boolean>;
 
-export function UpdateServerSettings(arg1:{[key: string]: string}):Promise<go_services.ServerSettingsResponse>;
-
 export function UpdateFileFlags(arg1:string,arg2:boolean,arg3:boolean):Promise<void>;
+
+export function UpdateServerSettings(arg1:Record<string, string>):Promise<go_services.ServerSettingsResponse>;
 
 export function UploadModpackZip(arg1:Array<number>,arg2:string):Promise<go_services.ModpackUploadResponse>;

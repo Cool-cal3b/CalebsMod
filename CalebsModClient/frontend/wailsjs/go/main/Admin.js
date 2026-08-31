@@ -50,12 +50,12 @@ export function Login() {
   return window['go']['main']['Admin']['Login']();
 }
 
-export function SelectAndUploadModpackZip() {
-  return window['go']['main']['Admin']['SelectAndUploadModpackZip']();
-}
-
 export function RestartServer() {
   return window['go']['main']['Admin']['RestartServer']();
+}
+
+export function SelectAndUploadModpackZip() {
+  return window['go']['main']['Admin']['SelectAndUploadModpackZip']();
 }
 
 export function SetAdminKey(arg1) {
@@ -74,12 +74,12 @@ export function UpdateDns() {
   return window['go']['main']['Admin']['UpdateDns']();
 }
 
-export function UpdateServerSettings(arg1) {
-  return window['go']['main']['Admin']['UpdateServerSettings'](arg1);
-}
-
 export function UpdateFileFlags(arg1, arg2, arg3) {
   return window['go']['main']['Admin']['UpdateFileFlags'](arg1, arg2, arg3);
+}
+
+export function UpdateServerSettings(arg1) {
+  return window['go']['main']['Admin']['UpdateServerSettings'](arg1);
 }
 
 export function UploadModpackZip(arg1, arg2) {
