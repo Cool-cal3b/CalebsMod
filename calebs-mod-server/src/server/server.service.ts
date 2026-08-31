@@ -8,6 +8,12 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
 import { PackFileDto } from 'src/modpack/dto/manifest.dto';
+import {
+  SERVER_SETTINGS,
+  readServerProperties,
+  writeServerProperties,
+  validateAndNormalizeSettings,
+} from './server-properties.util';
 
 const CLOUDFLARE_DOMAIN = 'calebwash.com';
 const CLOUDFLARE_SUBDOMAIN = 'mc';
@@ -433,6 +439,62 @@ export class ServerService {
     }
 
     return await this.rconService.send(command);
+  }
+
+  async getSettings() {
+    const { values, fileExists } = readServerProperties();
+    const dockerStatus = await this.dockerService.getServerStatus();
+
+    return {
+      settings: SERVER_SETTINGS.map((definition) => ({
+        key: definition.key,
+        label: definition.label,
+        description: definition.description,
+        type: definition.type,
+        options: definition.options,
+        min: definition.min,
+        max: definition.max,
+        value: values[definition.key] ?? definition.default,
+        appliesLive: !!definition.liveCommand,
+      })),
+      fileExists,
+      serverRunning: dockerStatus.running,
+    };
+  }
+
+  // Always persists to server.properties so the change survives the next
+  // restart. Settings that vanilla can change live (see SERVER_SETTINGS)
+  // are also pushed over RCON immediately if the server is up; the rest
+  // only take effect after a restart, which is reported back so the admin
+  // panel can prompt for one.
+  async updateSettings(updates: Record<string, string>) {
+    const normalized = validateAndNormalizeSettings(updates);
+    writeServerProperties(normalized);
+
+    const dockerStatus = await this.dockerService.getServerStatus();
+    const appliedLive: string[] = [];
+    const restartRequired: string[] = [];
+
+    for (const [key, value] of Object.entries(normalized)) {
+      const definition = SERVER_SETTINGS.find((s) => s.key === key);
+      if (!definition) continue;
+
+      if (!dockerStatus.running) continue;
+
+      if (definition.liveCommand && this.rconService.isConnected()) {
+        try {
+          await this.rconService.send(definition.liveCommand(value));
+          appliedLive.push(key);
+        } catch (error) {
+          console.error(`Failed to apply "${key}" live via RCON:`, error);
+          restartRequired.push(key);
+        }
+      } else {
+        restartRequired.push(key);
+      }
+    }
+
+    return { ...(await this.getSettings()), appliedLive, restartRequired };
   }
 
   private parsePlayerList(

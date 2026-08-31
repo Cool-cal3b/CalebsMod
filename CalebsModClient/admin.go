@@ -55,8 +55,20 @@ func (a *Admin) StopServer() (go_services.ServerStatus, string, error) {
 	return go_services.StopServer()
 }
 
+func (a *Admin) RestartServer() (go_services.ServerStatus, string, error) {
+	return go_services.RestartServer()
+}
+
 func (a *Admin) UpdateDns() (bool, string, error) {
 	return go_services.UpdateDns()
+}
+
+func (a *Admin) GetServerSettings() (go_services.ServerSettingsResponse, error) {
+	return go_services.GetServerSettings()
+}
+
+func (a *Admin) UpdateServerSettings(settings map[string]string) (go_services.ServerSettingsResponse, error) {
+	return go_services.UpdateServerSettings(settings)
 }
 
 func (a *Admin) GetToken() string {

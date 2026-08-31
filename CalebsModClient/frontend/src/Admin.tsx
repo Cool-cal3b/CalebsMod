@@ -9,24 +9,38 @@ import {
 	ClearAdminKey,
 	StartServer,
 	StopServer,
+	RestartServer,
 	UpdateDns,
 	GetServerStatus,
+	GetServerSettings,
+	UpdateServerSettings,
 	SelectAndUploadModpackZip,
 	DeleteAllFiles,
 } from '../wailsjs/go/main/Admin';
-import { ServerStatus, MinecraftServerResponse, ServerStatusResponse } from './types/admin-types';
+import {
+	ServerStatus,
+	MinecraftServerResponse,
+	ServerStatusResponse,
+	ServerSetting,
+	ServerSettingsResponse,
+} from './types/admin-types';
 import ConfirmModal from './components/ConfirmModal';
 import TopBar from './components/TopBar';
 import { useToast, errorText } from './components/Toast';
 import {
+	AlertIcon,
+	CheckIcon,
 	GlobeIcon,
+	InfoIcon,
 	KeyIcon,
 	ListIcon,
 	PackageIcon,
 	PowerIcon,
 	ServerIcon,
+	SettingsIcon,
 	ShieldIcon,
 	StopIcon,
+	SyncIcon,
 	TrashIcon,
 	UploadIcon,
 	UsersIcon,
@@ -52,6 +66,14 @@ function Admin() {
 	const [numberOfPlayers, setNumberOfPlayers] = useState<number | null>(null);
 	const [maxPlayers, setMaxPlayers] = useState<number | null>(null);
 	const [isUploading, setIsUploading] = useState(false);
+	const [isRestarting, setIsRestarting] = useState(false);
+
+	const [settings, setSettings] = useState<ServerSetting[] | null>(null);
+	const [settingsFileExists, setSettingsFileExists] = useState(true);
+	const [settingsEdits, setSettingsEdits] = useState<Record<string, string>>({});
+	const [settingsLoading, setSettingsLoading] = useState(false);
+	const [settingsSaving, setSettingsSaving] = useState(false);
+	const [restartRequiredKeys, setRestartRequiredKeys] = useState<string[]>([]);
 
 	useEffect(() => {
 		checkAuthStatus();
@@ -84,6 +106,26 @@ function Admin() {
 			if (timeoutId) clearTimeout(timeoutId);
 		};
 	}, [isLoggedIn]);
+
+	useEffect(() => {
+		if (!isLoggedIn) return;
+		loadSettings();
+	}, [isLoggedIn]);
+
+	const loadSettings = async () => {
+		setSettingsLoading(true);
+		try {
+			const response: ServerSettingsResponse = await GetServerSettings();
+			setSettings(response.settings);
+			setSettingsFileExists(response.fileExists);
+			setSettingsEdits({});
+		} catch (err) {
+			toast.error('Could not load server settings', errorText(err));
+			console.error(err);
+		} finally {
+			setSettingsLoading(false);
+		}
+	};
 
 	const checkAuthStatus = async () => {
 		try {
@@ -183,6 +225,52 @@ function Admin() {
 		} catch (err) {
 			toast.error('Could not stop the server', errorText(err));
 			console.error(err);
+		}
+	};
+
+	const handleRestartServer = async () => {
+		setIsRestarting(true);
+		try {
+			const response: MinecraftServerResponse = await RestartServer();
+			if (response.status === ServerStatus.ERROR) {
+				toast.error('Could not restart the server', response.message);
+			} else {
+				toast.success('Server restarting', 'Give it a minute before you join.');
+				setRestartRequiredKeys([]);
+			}
+		} catch (err) {
+			toast.error('Could not restart the server', errorText(err));
+			console.error(err);
+		} finally {
+			setIsRestarting(false);
+		}
+	};
+
+	const handleSettingChange = (key: string, value: string) => {
+		setSettingsEdits((prev) => ({ ...prev, [key]: value }));
+	};
+
+	const handleDiscardSettingsEdits = () => setSettingsEdits({});
+
+	const handleSaveSettings = async () => {
+		if (Object.keys(settingsEdits).length === 0) return;
+		setSettingsSaving(true);
+		try {
+			const response: ServerSettingsResponse = await UpdateServerSettings(settingsEdits);
+			setSettings(response.settings);
+			setSettingsFileExists(response.fileExists);
+			setSettingsEdits({});
+			setRestartRequiredKeys(response.restartRequired ?? []);
+			if (response.restartRequired && response.restartRequired.length > 0) {
+				toast.info('Settings saved', 'Restart the server for some of these to take effect.');
+			} else {
+				toast.success('Settings saved');
+			}
+		} catch (err) {
+			toast.error('Could not save settings', errorText(err));
+			console.error(err);
+		} finally {
+			setSettingsSaving(false);
 		}
 	};
 
@@ -357,6 +445,10 @@ function Admin() {
 								<StopIcon />
 								Stop server
 							</button>
+							<button className="btn" onClick={handleRestartServer} disabled={serverIsRunning !== true || isRestarting}>
+								{isRestarting ? <span className="spinner" /> : <SyncIcon />}
+								{isRestarting ? 'Restarting…' : 'Restart server'}
+							</button>
 							<button className="btn" onClick={handleUpdateDns}>
 								<GlobeIcon />
 								Update DNS
@@ -382,6 +474,128 @@ function Admin() {
 						</div>
 					</section>
 				</div>
+
+				<section className="card">
+					<div className="card__head">
+						<SettingsIcon /><h2>Server settings</h2>
+						<span className="spacer" />
+						<button className="btn btn--ghost btn--sm" onClick={loadSettings} disabled={settingsLoading}>
+							{settingsLoading ? <span className="spinner" /> : <SyncIcon />}
+							Refresh
+						</button>
+					</div>
+					<div className="card__body">
+						{!settings ? (
+							<p className="meta">{settingsLoading ? 'Loading…' : 'Could not load settings.'}</p>
+						) : (
+							<>
+								{!settingsFileExists && (
+									<div className="notice notice--info">
+										<InfoIcon />
+										The server hasn't been started yet, so these are defaults, not the live config. Saving will write them to server.properties for the first boot to use.
+									</div>
+								)}
+								{restartRequiredKeys.length > 0 && (
+									<div className="notice notice--warn" style={{ flexWrap: 'wrap', alignItems: 'center' }}>
+										<AlertIcon />
+										<span>
+											Saved, but the server needs a restart to apply: {restartRequiredKeys
+												.map((key) => settings.find((s) => s.key === key)?.label ?? key)
+												.join(', ')}
+											.
+										</span>
+										<button className="btn btn--sm" onClick={handleRestartServer} disabled={isRestarting}>
+											{isRestarting ? <span className="spinner" /> : <SyncIcon />}
+											Restart now
+										</button>
+									</div>
+								)}
+
+								<div className="settings-grid">
+									{settings.map((setting) => {
+										const value = settingsEdits[setting.key] ?? setting.value;
+										const inputId = `setting-${setting.key}`;
+										return (
+											<div className="field" key={setting.key}>
+												<div className="settings-field__head">
+													<label className="field__label" htmlFor={inputId}>{setting.label}</label>
+													<span className={`badge ${setting.appliesLive ? 'badge--ok' : 'badge--warn'}`}>
+														{setting.appliesLive ? 'Live' : 'Restart required'}
+													</span>
+												</div>
+
+												{setting.type === 'enum' && (
+													<select
+														id={inputId}
+														className="input"
+														value={value}
+														onChange={(e) => handleSettingChange(setting.key, e.target.value)}
+													>
+														{setting.options?.map((option) => (
+															<option key={option} value={option}>{option}</option>
+														))}
+													</select>
+												)}
+
+												{setting.type === 'boolean' && (
+													<select
+														id={inputId}
+														className="input"
+														value={value}
+														onChange={(e) => handleSettingChange(setting.key, e.target.value)}
+													>
+														<option value="true">On</option>
+														<option value="false">Off</option>
+													</select>
+												)}
+
+												{setting.type === 'number' && (
+													<input
+														id={inputId}
+														type="number"
+														className="input"
+														min={setting.min}
+														max={setting.max}
+														value={value}
+														onChange={(e) => handleSettingChange(setting.key, e.target.value)}
+													/>
+												)}
+
+												{setting.type === 'string' && (
+													<input
+														id={inputId}
+														type="text"
+														className="input"
+														value={value}
+														onChange={(e) => handleSettingChange(setting.key, e.target.value)}
+													/>
+												)}
+
+												<p className="meta settings-field__desc">{setting.description}</p>
+											</div>
+										);
+									})}
+								</div>
+
+								<div className="settings-actions">
+									<button
+										className="btn btn--primary"
+										onClick={handleSaveSettings}
+										disabled={settingsSaving || Object.keys(settingsEdits).length === 0}
+									>
+										{settingsSaving ? <span className="spinner" /> : <CheckIcon />}
+										{settingsSaving ? 'Saving…' : 'Save settings'}
+									</button>
+									{Object.keys(settingsEdits).length > 0 && (
+										<button className="btn btn--ghost" onClick={handleDiscardSettingsEdits} disabled={settingsSaving}>
+											Discard changes
+										</button>
+									)}
+								</div>
+							</>
+						)}
+					</div>
+				</section>
 			</div>
 
 			<ConfirmModal

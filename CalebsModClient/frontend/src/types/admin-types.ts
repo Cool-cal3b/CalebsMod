@@ -36,6 +36,26 @@ interface SearchModsResponse {
 	foundMods: FoundMod[];
 }
 
+interface ServerSetting {
+	key: string;
+	label: string;
+	description: string;
+	type: string;
+	options?: string[];
+	min?: number;
+	max?: number;
+	value: string;
+	appliesLive: boolean;
+}
+
+interface ServerSettingsResponse {
+	settings: ServerSetting[];
+	fileExists: boolean;
+	serverRunning: boolean;
+	appliedLive?: string[];
+	restartRequired?: string[];
+}
+
 interface FoundMod {
 	sha256: string;
 	fileName: string;
@@ -44,4 +64,11 @@ interface FoundMod {
 }
 
 export { ServerStatus };
-export type { MinecraftServerResponse, ServerStatusResponse, FoundMod, SearchModsResponse };
+export type {
+	MinecraftServerResponse,
+	ServerStatusResponse,
+	FoundMod,
+	SearchModsResponse,
+	ServerSetting,
+	ServerSettingsResponse,
+};

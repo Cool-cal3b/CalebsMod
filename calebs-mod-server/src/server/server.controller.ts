@@ -1,6 +1,6 @@
-import { Controller, Get, Post, Body, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Body, Query, UseGuards } from '@nestjs/common';
 import { ServerService } from './server.service';
-import { SendCommandDto } from './dto/server.dto';
+import { SendCommandDto, UpdateServerSettingsDto } from './dto/server.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
 @Controller('api/server')
@@ -72,5 +72,17 @@ export class ServerController {
   @UseGuards(JwtAuthGuard)
   async updateDns() {
     return await this.serverService.updateDns();
+  }
+
+  @Get('settings')
+  @UseGuards(JwtAuthGuard)
+  async getSettings() {
+    return await this.serverService.getSettings();
+  }
+
+  @Patch('settings')
+  @UseGuards(JwtAuthGuard)
+  async updateSettings(@Body() dto: UpdateServerSettingsDto) {
+    return await this.serverService.updateSettings(dto.settings);
   }
 }

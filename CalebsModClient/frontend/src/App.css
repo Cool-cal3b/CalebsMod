@@ -198,6 +198,32 @@
     gap: 8px;
 }
 
+.settings-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+    gap: 16px;
+    margin-top: 4px;
+}
+
+.settings-field__head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.settings-field__desc {
+    margin-top: 2px;
+}
+
+.settings-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 18px;
+    flex-wrap: wrap;
+}
+
 .auth-card {
     max-width: 400px;
     margin: 8vh auto 0;

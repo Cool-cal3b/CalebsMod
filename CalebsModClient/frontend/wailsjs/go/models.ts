@@ -150,6 +150,72 @@ export namespace go_services {
 	        this.players = source["players"];
 	    }
 	}
+	export class ServerSetting {
+	    key: string;
+	    label: string;
+	    description: string;
+	    type: string;
+	    options?: string[];
+	    min?: number;
+	    max?: number;
+	    value: string;
+	    appliesLive: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new ServerSetting(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.key = source["key"];
+	        this.label = source["label"];
+	        this.description = source["description"];
+	        this.type = source["type"];
+	        this.options = source["options"];
+	        this.min = source["min"];
+	        this.max = source["max"];
+	        this.value = source["value"];
+	        this.appliesLive = source["appliesLive"];
+	    }
+	}
+	export class ServerSettingsResponse {
+	    settings: ServerSetting[];
+	    fileExists: boolean;
+	    serverRunning: boolean;
+	    appliedLive?: string[];
+	    restartRequired?: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new ServerSettingsResponse(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.settings = this.convertValues(source["settings"], ServerSetting);
+	        this.fileExists = source["fileExists"];
+	        this.serverRunning = source["serverRunning"];
+	        this.appliedLive = source["appliedLive"];
+	        this.restartRequired = source["restartRequired"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class ServerStatusResponse {
 	    dockerStatus: DockerStatus;
 	    rconConnected: boolean;

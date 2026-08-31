@@ -30,6 +30,10 @@ export function GetManifest() {
   return window['go']['main']['Admin']['GetManifest']();
 }
 
+export function GetServerSettings() {
+  return window['go']['main']['Admin']['GetServerSettings']();
+}
+
 export function GetServerStatus() {
   return window['go']['main']['Admin']['GetServerStatus']();
 }
@@ -50,6 +54,10 @@ export function SelectAndUploadModpackZip() {
   return window['go']['main']['Admin']['SelectAndUploadModpackZip']();
 }
 
+export function RestartServer() {
+  return window['go']['main']['Admin']['RestartServer']();
+}
+
 export function SetAdminKey(arg1) {
   return window['go']['main']['Admin']['SetAdminKey'](arg1);
 }
@@ -64,6 +72,10 @@ export function StopServer() {
 
 export function UpdateDns() {
   return window['go']['main']['Admin']['UpdateDns']();
+}
+
+export function UpdateServerSettings(arg1) {
+  return window['go']['main']['Admin']['UpdateServerSettings'](arg1);
 }
 
 export function UpdateFileFlags(arg1, arg2, arg3) {

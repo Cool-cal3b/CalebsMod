@@ -48,6 +48,75 @@ func StopServer() (ServerStatus, string, error) {
 	return minecraftServerResponseData.Status, minecraftServerResponseData.Message, nil
 }
 
+type ServerSetting struct {
+	Key         string   `json:"key"`
+	Label       string   `json:"label"`
+	Description string   `json:"description"`
+	Type        string   `json:"type"`
+	Options     []string `json:"options,omitempty"`
+	Min         *int     `json:"min,omitempty"`
+	Max         *int     `json:"max,omitempty"`
+	Value       string   `json:"value"`
+	AppliesLive bool     `json:"appliesLive"`
+}
+
+type ServerSettingsResponse struct {
+	Settings        []ServerSetting `json:"settings"`
+	FileExists      bool            `json:"fileExists"`
+	ServerRunning   bool            `json:"serverRunning"`
+	AppliedLive     []string        `json:"appliedLive,omitempty"`
+	RestartRequired []string        `json:"restartRequired,omitempty"`
+}
+
+func GetServerSettings() (ServerSettingsResponse, error) {
+	response, err := MakeAuthenticatedGetRequest("/api/server/settings")
+	if err != nil {
+		return ServerSettingsResponse{}, err
+	}
+
+	var settingsResponse ServerSettingsResponse
+	err = json.Unmarshal(response, &settingsResponse)
+	if err != nil {
+		return ServerSettingsResponse{}, err
+	}
+
+	return settingsResponse, nil
+}
+
+func UpdateServerSettings(settings map[string]string) (ServerSettingsResponse, error) {
+	body, err := json.Marshal(map[string]map[string]string{"settings": settings})
+	if err != nil {
+		return ServerSettingsResponse{}, err
+	}
+
+	response, err := MakeAuthenticatedPatchRequest("/api/server/settings", body)
+	if err != nil {
+		return ServerSettingsResponse{}, err
+	}
+
+	var settingsResponse ServerSettingsResponse
+	err = json.Unmarshal(response, &settingsResponse)
+	if err != nil {
+		return ServerSettingsResponse{}, err
+	}
+
+	return settingsResponse, nil
+}
+
+func RestartServer() (ServerStatus, string, error) {
+	response, err := MakeAuthenticatedPostRequest("/api/server/restart", nil)
+	if err != nil {
+		return ServerStatusError, "", err
+	}
+
+	err = json.Unmarshal(response, &minecraftServerResponseData)
+	if err != nil {
+		return ServerStatusError, "", err
+	}
+
+	return minecraftServerResponseData.Status, minecraftServerResponseData.Message, nil
+}
+
 func UpdateDns() (bool, string, error) {
 	response, err := MakeAuthenticatedPostRequest("/api/server/update-dns", nil)
 	fmt.Println("Response: ", string(response))
@@ -80,6 +149,7 @@ const (
 	ServerStatusAlreadyRunning ServerStatus = "already_running"
 	ServerStatusStopped        ServerStatus = "stopped"
 	ServerStatusAlreadyStopped ServerStatus = "already_stopped"
+	ServerStatusRestarted      ServerStatus = "restarted"
 	ServerStatusNotFound       ServerStatus = "not_found"
 	ServerStatusError          ServerStatus = "error"
 )

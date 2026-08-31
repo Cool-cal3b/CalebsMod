@@ -16,6 +16,8 @@ export function GetAllFiles(arg1:string):Promise<Array<go_services.PackFileDto>>
 
 export function GetManifest():Promise<Array<go_services.PackFileDto>>;
 
+export function GetServerSettings():Promise<go_services.ServerSettingsResponse>;
+
 export function GetServerStatus():Promise<go_services.ServerStatusResponse>;
 
 export function GetToken():Promise<string>;
@@ -26,6 +28,8 @@ export function Login():Promise<void>;
 
 export function SelectAndUploadModpackZip():Promise<go_services.ModpackUploadResponse>;
 
+export function RestartServer():Promise<go_services.ServerStatus>;
+
 export function SetAdminKey(arg1:string):Promise<void>;
 
 export function StartServer():Promise<go_services.ServerStatus>;
@@ -33,6 +37,8 @@ export function StartServer():Promise<go_services.ServerStatus>;
 export function StopServer():Promise<go_services.ServerStatus>;
 
 export function UpdateDns():Promise<boolean>;
+
+export function UpdateServerSettings(arg1:{[key: string]: string}):Promise<go_services.ServerSettingsResponse>;
 
 export function UpdateFileFlags(arg1:string,arg2:boolean,arg3:boolean):Promise<void>;
 
