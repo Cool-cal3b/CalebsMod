@@ -141,25 +141,30 @@ func PrismExecutablePath(prismPath string) string {
 // puts the game in. Prism names it "minecraft" on Windows and ".minecraft" on
 // macOS and Linux.
 //
-// Whichever one is already on disk wins, so an instance created by a Prism
-// build that disagrees with the guess below is still read correctly instead of
-// being reported as an empty install. Only a brand new instance falls through
-// to the per-OS default.
+// The OS-native name is tried first, so an instance that also carries a
+// leftover directory in the other spelling - an older client build seeded an
+// empty ".minecraft" alongside the real "minecraft" on Windows - still
+// resolves to the one Prism actually uses. The non-native spelling is only
+// accepted when it is the sole directory present, which keeps an instance
+// created by a Prism build that disagrees readable instead of being reported
+// as an empty install. A brand new instance falls through to the per-OS
+// default.
 func GameRootPath(instancePath string) string {
 	dotted := filepath.Join(instancePath, ".minecraft")
 	plain := filepath.Join(instancePath, "minecraft")
 
-	if info, err := os.Stat(dotted); err == nil && info.IsDir() {
-		return dotted
-	}
-	if info, err := os.Stat(plain); err == nil && info.IsDir() {
-		return plain
+	preferred, fallback := plain, dotted
+	if runtime.GOOS != "windows" {
+		preferred, fallback = dotted, plain
 	}
 
-	if runtime.GOOS == "windows" {
-		return plain
+	if info, err := os.Stat(preferred); err == nil && info.IsDir() {
+		return preferred
 	}
-	return dotted
+	if info, err := os.Stat(fallback); err == nil && info.IsDir() {
+		return fallback
+	}
+	return preferred
 }
 
 // --- Process control ---------------------------------------------------------
