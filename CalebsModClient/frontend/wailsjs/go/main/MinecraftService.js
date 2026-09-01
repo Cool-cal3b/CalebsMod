@@ -26,6 +26,14 @@ export function GetClientVersion() {
   return window['go']['main']['MinecraftService']['GetClientVersion']();
 }
 
+export function GetDocumentation(arg1) {
+  return window['go']['main']['MinecraftService']['GetDocumentation'](arg1);
+}
+
+export function GetDocumentationList() {
+  return window['go']['main']['MinecraftService']['GetDocumentationList']();
+}
+
 export function GetServerStatus() {
   return window['go']['main']['MinecraftService']['GetServerStatus']();
 }

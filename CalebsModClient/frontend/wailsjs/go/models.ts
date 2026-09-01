@@ -50,6 +50,36 @@ export namespace go_services {
 	        this.finishedAt = source["finishedAt"];
 	    }
 	}
+	export class DocumentationDocument {
+	    id: string;
+	    title: string;
+	    markdown: string;
+
+	    static createFrom(source: any = {}) {
+	        return new DocumentationDocument(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.title = source["title"];
+	        this.markdown = source["markdown"];
+	    }
+	}
+	export class DocumentationSummary {
+	    id: string;
+	    title: string;
+
+	    static createFrom(source: any = {}) {
+	        return new DocumentationSummary(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.title = source["title"];
+	    }
+	}
 	export class ModpackFileInfo {
 	    sha256: string;
 	    fileName: string;
@@ -272,4 +302,3 @@ export namespace go_services {
 	}
 
 }
-

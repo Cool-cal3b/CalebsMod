@@ -82,7 +82,7 @@ function Admin() {
 	useEffect(() => {
 		if (!isLoggedIn) return;
 
-		let timeoutId: number;
+		let timeoutId: ReturnType<typeof setTimeout>;
 		let cancelled = false;
 
 		const poll = async () => {

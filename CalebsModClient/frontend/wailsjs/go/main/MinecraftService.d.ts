@@ -14,6 +14,10 @@ export function GetClientStatus():Promise<go_services.ClientStatus>;
 
 export function GetClientVersion():Promise<string>;
 
+export function GetDocumentation(arg1:string):Promise<go_services.DocumentationDocument>;
+
+export function GetDocumentationList():Promise<Array<go_services.DocumentationSummary>>;
+
 export function GetServerStatus():Promise<go_services.ServerStatusResponse>;
 
 export function InstallLauncher():Promise<boolean>;

@@ -7,6 +7,7 @@ import { AccessModule } from './access/access.module';
 import { ServerModule } from './server/server.module';
 import { RconModule } from './rcon/rcon.module';
 import { DockerModule } from './docker/docker.module';
+import { DocumentationModule } from './documentation/documentation.module';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { DockerModule } from './docker/docker.module';
     ServerModule,
     RconModule,
     DockerModule,
+    DocumentationModule,
   ],
   controllers: [],
   providers: [],

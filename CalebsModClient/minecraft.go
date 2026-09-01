@@ -77,6 +77,14 @@ func (m *MinecraftService) GetServerStatus() (go_services.ServerStatusResponse, 
 	return go_services.GetPublicServerStatus()
 }
 
+func (m *MinecraftService) GetDocumentationList() ([]go_services.DocumentationSummary, error) {
+	return go_services.GetDocumentationList()
+}
+
+func (m *MinecraftService) GetDocumentation(id string) (go_services.DocumentationDocument, error) {
+	return go_services.GetDocumentation(id)
+}
+
 func (m *MinecraftService) GetClientVersion() string {
 	return go_services.GetClientVersion()
 }

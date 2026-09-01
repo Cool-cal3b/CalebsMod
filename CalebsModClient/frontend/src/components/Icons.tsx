@@ -139,6 +139,13 @@ export const ListIcon = ({ className = 'btn__icon' }: IconProps) => (
 	</svg>
 );
 
+export const BookIcon = ({ className = 'btn__icon' }: IconProps) => (
+	<svg {...base} className={className}>
+		<path d="M4 4.5A3.5 3.5 0 0 1 7.5 3H12v17H7.5A3.5 3.5 0 0 0 4 21.5Z" />
+		<path d="M20 4.5A3.5 3.5 0 0 0 16.5 3H12v17h4.5a3.5 3.5 0 0 1 3.5 1.5Z" />
+	</svg>
+);
+
 export const CopyIcon = ({ className = 'btn__icon' }: IconProps) => (
 	<svg {...base} className={className}>
 		<rect x="9" y="9" width="11" height="11" rx="2" />

@@ -30,6 +30,7 @@ import {
 	TrashIcon,
 	UpdateIcon,
 	UsersIcon,
+	BookIcon,
 } from './components/Icons';
 
 const SERVER_STATUS_POLL_MS = 20000;
@@ -450,6 +451,10 @@ function App() {
 						{clientState.text}
 					</span>
 				)}
+				<Link className="btn btn--ghost btn--sm" to="/wiki">
+					<BookIcon />
+					Wiki
+				</Link>
 				<Link className="btn btn--ghost btn--sm" to="/admin">
 					<ShieldIcon />
 					Admin
