@@ -43,6 +43,40 @@ The game installs to: %LOCALAPPDATA%\CalebsMod\
   MAC
 ═══════════════════════════════════════════════════════════
 
+There are two ways in. Use the first one - macOS never blocks it.
+
+┌─────────────────────────────────────────────────────────┐
+│  WAY 1: one command  (recommended, no warnings at all)  │
+└─────────────────────────────────────────────────────────┘
+
+1️⃣ OPEN TERMINAL
+   - Press Cmd+Space, type "Terminal", press Enter
+
+2️⃣ PASTE THIS AND PRESS ENTER
+
+      curl -fsSL https://mc.calebwash.com/install.sh | bash
+
+   (Curious what it does? Open https://mc.calebwash.com/install.sh in
+    your browser first - it's a readable script, not a mystery blob.)
+
+3️⃣ WAIT
+   - It downloads the game client (a few hundred MB, takes a few minutes)
+   - You'll see a progress bar
+
+4️⃣ PLAY!
+   - The game launches automatically when it's done
+   - After this you can just press Cmd+Space and type "calebsmod" -
+     you never need that command again unless I tell you to re-run it
+
+   💾 If I sent you the install-calebsmod-mac.sh file instead of the
+      command above: don't double-click it (that just opens a text
+      editor). In Terminal type "bash " - with the space - then drag the
+      file into the window and press Enter.
+
+┌─────────────────────────────────────────────────────────┐
+│  WAY 2: the installer app  (macOS will block it once)   │
+└─────────────────────────────────────────────────────────┘
+
 1️⃣ DOWNLOAD
    - Save the CalebsModBootstrapper-mac.zip file I sent you
    - Double-click it to unzip - you'll get a folder with
@@ -70,7 +104,10 @@ The game installs to: %LOCALAPPDATA%\CalebsMod\
    - Game data: ~/Library/Application Support/CalebsMod/
    (In Finder, press Cmd+Shift+G and paste one of those paths)
 
-⚠️ MACOS SAYS IT'S BLOCKED
+⚠️ MACOS SAYS IT'S BLOCKED   (only applies to WAY 2)
+
+If this is happening, the easy fix is to just use WAY 1 above instead - the
+script is never blocked. But if you'd rather stick with the app:
 
 You'll see something like "Apple could not verify CalebsMod Installer is free
 of malware" or "cannot be opened because it is from an unidentified developer".

@@ -8,6 +8,7 @@ import { ServerModule } from './server/server.module';
 import { RconModule } from './rcon/rcon.module';
 import { DockerModule } from './docker/docker.module';
 import { DocumentationModule } from './documentation/documentation.module';
+import { InstallModule } from './install/install.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { DocumentationModule } from './documentation/documentation.module';
     RconModule,
     DockerModule,
     DocumentationModule,
+    InstallModule,
   ],
   controllers: [],
   providers: [],

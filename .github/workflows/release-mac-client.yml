@@ -25,6 +25,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Up here rather than beside the packaging step below so a typo in the
+      # script fails in seconds instead of after a twenty-minute macOS build.
+      # Syntax only: running it for real would install into the runner's own
+      # home directory and would depend on mc.calebwash.com being up, which
+      # would make releases fail whenever the server PC is off.
+      - name: Check the Terminal installer script
+        run: bash -n calebs-mod-bootstrapper/install-mac.sh
+
       # The bootstrapper's go.mod, not the client's: this job builds both, and
       # the bootstrapper requires the newer toolchain of the two.
       - uses: actions/setup-go@v5
@@ -156,6 +164,33 @@ jobs:
           path: calebs-mod-bootstrapper/dist/CalebsModBootstrapper-mac.zip
           if-no-files-found: error
 
+      # The second thing a Mac friend can be handed, and the one that needs no
+      # talking-through: the bootstrapper .app is only ad-hoc signed, so
+      # Gatekeeper blocks a friend's first open, and the "Open Anyway" button
+      # moved deep into System Settings in macOS 15. Gatekeeper does not gate a
+      # script run from Terminal, so this path has no prompt to get past.
+      #
+      # Renamed on the way out because the friend sees this filename in their
+      # Downloads folder and "install-mac.sh" says nothing about what it
+      # installs. Shipped as its own artifact so downloading it yields exactly
+      # one file to forward, with no bootstrapper zip to rummage past.
+      #
+      # It is not versioned and not uploaded to S3: it asks the API for whatever
+      # release is current, so one copy keeps working across every future
+      # release and there is nothing here that could go stale.
+      - name: Stage the Terminal installer script
+        run: |
+          set -euo pipefail
+          mkdir -p dist-installer
+          cp calebs-mod-bootstrapper/install-mac.sh dist-installer/install-calebsmod-mac.sh
+          chmod +x dist-installer/install-calebsmod-mac.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CalebsModInstaller-mac-script
+          path: dist-installer/install-calebsmod-mac.sh
+          if-no-files-found: error
+
       - name: Upload to S3
         if: ${{ !inputs.skip_upload }}
         working-directory: CalebsModClient/build/bin
@@ -202,4 +237,8 @@ jobs:
             echo "- Archive: \`${{ steps.package.outputs.zip }}\`"
             echo "- SHA256: \`${{ steps.package.outputs.sha256 }}\`"
             echo "- Uploaded: ${{ !inputs.skip_upload }}"
+            echo
+            echo "To hand a Mac friend: the **CalebsModInstaller-mac-script**"
+            echo "artifact below. They run \`bash ~/Downloads/install-calebsmod-mac.sh\`"
+            echo "in Terminal - no Gatekeeper prompt on that path."
           } >> "$GITHUB_STEP_SUMMARY"
