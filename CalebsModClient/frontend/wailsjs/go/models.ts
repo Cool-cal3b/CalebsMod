@@ -54,11 +54,11 @@ export namespace go_services {
 	    id: string;
 	    title: string;
 	    markdown: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new DocumentationDocument(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -69,11 +69,11 @@ export namespace go_services {
 	export class DocumentationSummary {
 	    id: string;
 	    title: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new DocumentationSummary(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -302,3 +302,4 @@ export namespace go_services {
 	}
 
 }
+
