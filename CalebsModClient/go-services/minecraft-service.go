@@ -468,12 +468,18 @@ func getPrismLauncherPath() (string, error) {
 //
 // The two platforms publish quite different things. Windows ships several
 // per-toolchain zips and we want the portable one, never the "setup"
-// installer. macOS ships a single universal .tar.gz covering both Intel and
-// Apple Silicon, plus a "Legacy" variant for older systems - so there is no
-// architecture to match there, only a macOS version floor. The current build is
-// preferred and Legacy is the fallback, which is the right way round: a modern
-// Mac running Legacy works but gives up features, whereas an old Mac running
-// the current build does not launch at all.
+// installer. macOS ships a single universal archive covering both Intel and
+// Apple Silicon, so there is no architecture to match there.
+//
+// The macOS container format is not stable across Prism releases: it was a
+// .tar.gz through 9.x and is a .zip as of 11.x, alongside a .dmg we cannot
+// unpack. Both archive suffixes are therefore accepted and the .dmg is
+// ignored, so a future switch back does not strand every Mac install. Old
+// releases also carried a "Legacy" variant for macOS versions below the
+// current build's floor; it is no longer published, but it is still taken as
+// a fallback when present, which is the right way round: a modern Mac running
+// Legacy works but gives up features, whereas an old Mac running the current
+// build does not launch at all.
 func selectPrismAsset(release *GitHubRelease) (url string, name string) {
 	arch := runtime.GOARCH
 
@@ -505,7 +511,10 @@ func selectPrismAsset(release *GitHubRelease) (url string, name string) {
 		for _, asset := range release.Assets {
 			lowerName := strings.ToLower(asset.Name)
 
-			if !strings.Contains(lowerName, "macos") || !strings.HasSuffix(lowerName, ".tar.gz") {
+			if !strings.Contains(lowerName, "macos") {
+				continue
+			}
+			if !strings.HasSuffix(lowerName, ".zip") && !strings.HasSuffix(lowerName, ".tar.gz") {
 				continue
 			}
 
@@ -550,9 +559,11 @@ func downloadAndInstallPrism(destPath string) error {
 		return fmt.Errorf("failed to create directory: %w", err)
 	}
 
-	// ExtractArchive rather than the local unzip(): the macOS asset is a
-	// .tar.gz, and what is inside it is an .app bundle whose symlinks and
-	// executable bits have to survive or Prism will not launch.
+	// ExtractArchive rather than the local unzip(): the macOS asset may be a
+	// .tar.gz or a .zip depending on the Prism release, and what is inside it
+	// is an .app bundle whose symlinks and executable bits have to survive or
+	// Prism will not launch. ExtractArchive picks by suffix and routes the zip
+	// through ditto on macOS for exactly that reason.
 	if err := ExtractArchive(archivePath, destPath); err != nil {
 		return fmt.Errorf("failed to extract %s: %w", assetName, err)
 	}
