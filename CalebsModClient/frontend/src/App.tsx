@@ -20,6 +20,13 @@ import ConfirmModal from './components/ConfirmModal';
 import Progress from './components/Progress';
 import { useToast, errorText } from './components/Toast';
 import {
+	formatLocalLastSeen,
+	HOMEPAGE_STATUS_POLL_MS,
+	serverDisplayState,
+	SERVER_STATUS_POLL_MS,
+	UPDATE_CHECK_POLL_MS,
+} from './home-status-utils';
+import {
 	DownloadIcon,
 	GlobeIcon,
 	PackageIcon,
@@ -34,7 +41,6 @@ import {
 	BookIcon,
 } from './components/Icons';
 
-const SERVER_STATUS_POLL_MS = 20000;
 const SERVER_ADDRESS = 'mc.calebwash.com';
 const RECENT_PLAYERS_SHOWN = 8;
 
@@ -76,6 +82,7 @@ function App() {
 	const [clientStatus, setClientStatus] = useState<go_services.ClientStatus | null>(null);
 	const [serverStatus, setServerStatus] = useState<go_services.ServerStatusResponse | null>(null);
 	const [serverChecked, setServerChecked] = useState(false);
+	const [serverUnavailable, setServerUnavailable] = useState(false);
 	const [recentPlayers, setRecentPlayers] = useState<go_services.RecentPlayersResponse | null>(null);
 	const [recentChecked, setRecentChecked] = useState(false);
 	const [version, setVersion] = useState('');
@@ -95,12 +102,21 @@ function App() {
 	const refreshServerStatus = useCallback(async () => {
 		try {
 			setServerStatus(await GetServerStatus());
+			setServerUnavailable(false);
 		} catch (error) {
 			console.error('Failed to get server status:', error);
 			setServerStatus(null);
+			setServerUnavailable(true);
 		} finally {
 			setServerChecked(true);
 		}
+	}, []);
+
+	const refreshUpdateStatus = useCallback(() => {
+		return CheckForClientUpdate()
+			.then(setUpdate)
+			.catch(() => setUpdate(null))
+			.finally(() => setUpdateChecked(true));
 	}, []);
 
 	const refreshRecentPlayers = useCallback(async () => {
@@ -128,21 +144,20 @@ function App() {
 		refreshServerStatus();
 		refreshRecentPlayers();
 		GetClientVersion().then(setVersion).catch(() => setVersion(''));
+		refreshUpdateStatus();
 
-		// Checked once at startup rather than on a timer: this is a launcher
-		// people open, use and close, and each check costs the server a
-		// presigned S3 URL.
-		CheckForClientUpdate()
-			.then(setUpdate)
-			.catch(() => setUpdate(null))
-			.finally(() => setUpdateChecked(true));
-
-		const timer = setInterval(() => {
-			refreshServerStatus();
+		const serverTimer = setInterval(refreshServerStatus, SERVER_STATUS_POLL_MS);
+		const homepageTimer = setInterval(() => {
+			refreshClientStatus();
 			refreshRecentPlayers();
-		}, SERVER_STATUS_POLL_MS);
-		return () => clearInterval(timer);
-	}, [refreshClientStatus, refreshServerStatus, refreshRecentPlayers]);
+		}, HOMEPAGE_STATUS_POLL_MS);
+		const updateTimer = setInterval(refreshUpdateStatus, UPDATE_CHECK_POLL_MS);
+		return () => {
+			clearInterval(serverTimer);
+			clearInterval(homepageTimer);
+			clearInterval(updateTimer);
+		};
+	}, [refreshClientStatus, refreshServerStatus, refreshRecentPlayers, refreshUpdateStatus]);
 
 	const syncMods = async () => {
 		if (isSyncing) return;
@@ -273,6 +288,7 @@ function App() {
 
 	const launcherInstalled = !!clientStatus?.launcherInstalled;
 	const serverOnline = !!serverStatus?.dockerStatus?.running;
+	const displayedServerState = serverDisplayState(serverChecked, serverUnavailable, serverOnline);
 	const players = serverStatus?.players;
 
 	// Who is on *right now* comes from the live RCON roster we already poll,
@@ -308,7 +324,8 @@ function App() {
 		if (canSync && clientStatus.filesMissing > 0)
 			return `${clientStatus.filesMissing} file${clientStatus.filesMissing === 1 ? '' : 's'} out of date — sync before you join.`;
 		if (canSync) return 'The server still needs to be added to your Minecraft server list.';
-		if (!serverOnline && serverChecked) return 'The server is offline right now, but you can still play locally.';
+		if (displayedServerState === 'unavailable') return 'Could not reach the server right now. The client will keep checking.';
+		if (displayedServerState === 'offline') return 'The server is offline right now, but you can still play locally.';
 		return null;
 	})();
 
@@ -369,12 +386,24 @@ function App() {
 				<section className="tiles" aria-label="Status">
 					<div className="tile">
 						<div className="tile__label"><ServerIcon /> Server</div>
-						<div className={`tile__value ${serverChecked ? (serverOnline ? 't-ok' : 't-off') : ''}`}>
-							<span className={`dot ${!serverChecked ? '' : serverOnline ? 'dot--ok dot--live' : 'dot--off'}`} />
-							{!serverChecked ? 'Checking…' : serverOnline ? 'Online' : 'Offline'}
+						<div className={`tile__value ${displayedServerState === 'online' ? 't-ok' : displayedServerState === 'checking' ? '' : 't-off'}`}>
+							<span className={`dot ${displayedServerState === 'online' ? 'dot--ok dot--live' : displayedServerState === 'checking' ? '' : 'dot--off'}`} />
+							{displayedServerState === 'checking'
+								? 'Checking…'
+								: displayedServerState === 'online'
+									? 'Online'
+									: displayedServerState === 'unavailable'
+										? 'Unavailable'
+										: 'Offline'}
 						</div>
 						<div className="tile__hint">
-							{!serverChecked ? ' ' : serverOnline ? 'Ready to join' : 'Nobody has started it'}
+							{displayedServerState === 'checking'
+								? ' '
+								: displayedServerState === 'online'
+									? 'Ready to join'
+									: displayedServerState === 'unavailable'
+										? 'Could not reach the server'
+										: 'Nobody has started it'}
 						</div>
 					</div>
 
@@ -505,7 +534,10 @@ function App() {
 											)}
 											<span className="recent__name">{player.username}</span>
 											<span className="spacer" />
-											<span className={`recent__when ${isOnline ? 't-ok' : ''}`}>
+											<span
+												className={`recent__when ${isOnline ? 't-ok' : ''}`}
+												title={isOnline ? undefined : formatLocalLastSeen(player.lastSeen)}
+											>
 												{isOnline && <span className="dot dot--ok dot--live" />}
 												{isOnline ? 'Online now' : timeAgo(player.lastSeen)}
 											</span>
