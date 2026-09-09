@@ -68,8 +68,12 @@ if (-not $SkipBuild) {
     Push-Location $clientDir
     
     try {
-        Write-Host "Running: wails build" -ForegroundColor Cyan
-        wails build
+        # -clean empties build\bin first. Without it the zip below picks up
+        # whatever else is sitting there - a `wails dev` run leaves a
+        # CalebsModClient-dev.exe, which sorts ahead of the real binary and
+        # has shipped as the installed client once already.
+        Write-Host "Running: wails build -clean" -ForegroundColor Cyan
+        wails build -clean
         
         if ($LASTEXITCODE -ne 0) {
             Write-Host "Error: Wails build failed with exit code $LASTEXITCODE" -ForegroundColor Red
@@ -100,6 +104,21 @@ if (-not (Test-Path $buildOutputDir)) {
     exit 1
 }
 
+# Belt and braces with -clean above: name exactly what ships, so nothing can
+# ride along even if the bin directory is dirty for some reason -clean missed.
+$clientExe = Join-Path $buildOutputDir "CalebsModClient.exe"
+if (-not (Test-Path $clientExe)) {
+    Write-Host "Error: CalebsModClient.exe not found in $buildOutputDir" -ForegroundColor Red
+    exit 1
+}
+
+$strays = @(Get-ChildItem -Path $buildOutputDir -File | Where-Object { $_.Name -ne "CalebsModClient.exe" })
+if ($strays.Count -gt 0) {
+    Write-Host "Note: ignoring $($strays.Count) file(s) in the build directory that are not part of a release:" -ForegroundColor Yellow
+    $strays | ForEach-Object { Write-Host "  - $($_.Name)" -ForegroundColor Gray }
+    Write-Host ""
+}
+
 $zipFileName = "CalebsModClient-$newVersion.zip"
 $zipFilePath = Join-Path $projectRoot $zipFileName
 
@@ -109,11 +128,11 @@ if (Test-Path $zipFilePath) {
 }
 
 Write-Host "Creating zip archive..." -ForegroundColor Yellow
-Write-Host "Source: $buildOutputDir" -ForegroundColor Gray
+Write-Host "Source: $clientExe" -ForegroundColor Gray
 Write-Host "Output: $zipFilePath" -ForegroundColor Gray
 
 try {
-    Compress-Archive -Path "$buildOutputDir\*" -DestinationPath $zipFilePath -CompressionLevel Optimal
+    Compress-Archive -Path $clientExe -DestinationPath $zipFilePath -CompressionLevel Optimal
     
     $zipSize = (Get-Item $zipFilePath).Length / 1MB
     Write-Host "Zip created successfully (Size: $([math]::Round($zipSize, 2)) MB)" -ForegroundColor Green

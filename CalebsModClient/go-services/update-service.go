@@ -420,35 +420,58 @@ func verifyReleaseZip(path, expectedSha256 string) error {
 // On macOS the thing being looked for is a directory - the .app bundle - so
 // the walk cannot simply skip directories the way the Windows search does.
 func findClientExecutable(dir string) string {
-	var found string
 	wantBundle := runtime.GOOS == "darwin"
+	wantName := strings.ToLower(ClientExeNameWindows)
+	if wantBundle {
+		wantName = strings.ToLower(ClientAppNameDarwin)
+	}
+
+	var exact, fallback string
 
 	filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return nil
 		}
-
 		name := strings.ToLower(info.Name())
 
 		if wantBundle {
-			if info.IsDir() && strings.HasSuffix(name, ".app") && strings.Contains(name, "calebsmod") {
-				found = path
+			if !info.IsDir() || !strings.HasSuffix(name, ".app") {
+				return nil
+			}
+			if name == wantName {
+				exact = path
 				return filepath.SkipAll
 			}
-			return nil
+			if fallback == "" && strings.Contains(name, "calebsmod") {
+				fallback = path
+			}
+			// Never descend into a bundle: everything inside it is its
+			// contents, not another candidate.
+			return filepath.SkipDir
 		}
 
 		if info.IsDir() {
 			return nil
 		}
-		if strings.HasSuffix(name, ".exe") && strings.Contains(name, "calebsmod") {
-			found = path
+		if name == wantName {
+			exact = path
 			return filepath.SkipAll
+		}
+		// A release should only ever contain the one binary, but a stray
+		// `wails dev` build has shipped in a zip before. It sorts ahead of the
+		// real exe, and it exits immediately without a dev server, so taking
+		// the first fuzzy match installed a client that would not start.
+		if fallback == "" && strings.HasSuffix(name, ".exe") &&
+			strings.Contains(name, "calebsmod") && !strings.Contains(name, "-dev") {
+			fallback = path
 		}
 		return nil
 	})
 
-	return found
+	if exact != "" {
+		return exact
+	}
+	return fallback
 }
 
 // CleanupStaleUpdateFiles removes what a previous update left behind. It runs

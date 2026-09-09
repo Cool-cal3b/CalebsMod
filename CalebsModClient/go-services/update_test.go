@@ -227,6 +227,37 @@ func TestFindClientExecutableIgnoresUnrelatedBinaries(t *testing.T) {
 	}
 }
 
+// Windows client 0.17 shipped with a stray `wails dev` binary next to the real
+// one, because the release script zipped everything in buildin. The walk took
+// the first match, and "CalebsModClient-dev.exe" sorts ahead of
+// "CalebsModClient.exe" ('-' is 0x2D, '.' is 0x2E), so the updater installed a
+// binary that exits immediately with no dev server behind it.
+func TestFindClientExecutableIgnoresDevBuild(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"CalebsModClient-dev.exe", "CalebsModClient.exe"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("BINARY"), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	found := findClientExecutable(dir)
+	if filepath.Base(found) != "CalebsModClient.exe" {
+		t.Errorf("findClientExecutable = %q, want the real CalebsModClient.exe", found)
+	}
+}
+
+// A dev build on its own is still not worth installing over a working client.
+func TestFindClientExecutableRejectsDevBuildAlone(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "CalebsModClient-dev.exe"), []byte("BINARY"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	if found := findClientExecutable(dir); found != "" {
+		t.Errorf("findClientExecutable = %q, want empty for a release holding only a dev build", found)
+	}
+}
+
 func TestVerifyReleaseZip(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "release.zip")
