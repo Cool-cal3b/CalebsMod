@@ -9,6 +9,7 @@ import { RconModule } from './rcon/rcon.module';
 import { DockerModule } from './docker/docker.module';
 import { DocumentationModule } from './documentation/documentation.module';
 import { InstallModule } from './install/install.module';
+import { PlayerActivityModule } from './player-activity/player-activity.module';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { InstallModule } from './install/install.module';
     DockerModule,
     DocumentationModule,
     InstallModule,
+    PlayerActivityModule,
   ],
   controllers: [],
   providers: [],

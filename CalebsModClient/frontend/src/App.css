@@ -123,6 +123,56 @@
     border-top: 1px solid var(--line);
 }
 
+/* The "who's been on lately" card. Rows are deliberately quiet: the only
+   colour is the live dot on someone who is on right now. */
+.recent__list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.recent__row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 0;
+    border-bottom: 1px solid var(--line);
+}
+
+.recent__row:last-child {
+    border-bottom: 0;
+}
+
+/* Skin heads come from a third party, so the row has to look right without
+   them: the name carries the row and the image only ever adds to it. */
+.recent__head {
+    width: 24px;
+    height: 24px;
+    border-radius: var(--r-sm);
+    image-rendering: pixelated;
+    background: var(--line);
+}
+
+.recent__name {
+    font-weight: 560;
+    font-size: 0.8125rem;
+}
+
+.recent__when {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.7188rem;
+    color: var(--ink-3);
+    font-variant-numeric: tabular-nums;
+}
+
+.recent__empty {
+    margin: 0;
+    font-size: 0.8125rem;
+    color: var(--ink-3);
+}
+
 .home__footer {
     display: flex;
     align-items: center;

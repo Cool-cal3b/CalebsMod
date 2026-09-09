@@ -34,6 +34,10 @@ export function GetDocumentationList() {
   return window['go']['main']['MinecraftService']['GetDocumentationList']();
 }
 
+export function GetRecentPlayers() {
+  return window['go']['main']['MinecraftService']['GetRecentPlayers']();
+}
+
 export function GetServerStatus() {
   return window['go']['main']['MinecraftService']['GetServerStatus']();
 }

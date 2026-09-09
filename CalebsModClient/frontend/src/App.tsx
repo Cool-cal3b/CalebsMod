@@ -8,6 +8,7 @@ import {
 	ResetClient,
 	GetClientStatus,
 	GetServerStatus,
+	GetRecentPlayers,
 	GetClientVersion,
 	CheckForClientUpdate,
 	ApplyClientUpdate,
@@ -35,6 +36,22 @@ import {
 
 const SERVER_STATUS_POLL_MS = 20000;
 const SERVER_ADDRESS = 'mc.calebwash.com';
+const RECENT_PLAYERS_SHOWN = 8;
+
+// Coarse on purpose: the question this answers is "has anyone been on
+// lately", not exactly when.
+function timeAgo(ms: number): string {
+	const minutes = Math.round((Date.now() - ms) / 60000);
+	if (minutes < 2) return 'Just now';
+	if (minutes < 60) return `${minutes} min ago`;
+
+	const hours = Math.round(minutes / 60);
+	if (hours < 24) return hours === 1 ? '1 hour ago' : `${hours} hours ago`;
+
+	const days = Math.round(hours / 24);
+	if (days === 1) return 'Yesterday';
+	return `${days} days ago`;
+}
 
 type SyncProgress = { phase: string; done: number; total: number };
 type UpdateProgress = { phase: string; done: number; total: number };
@@ -59,6 +76,8 @@ function App() {
 	const [clientStatus, setClientStatus] = useState<go_services.ClientStatus | null>(null);
 	const [serverStatus, setServerStatus] = useState<go_services.ServerStatusResponse | null>(null);
 	const [serverChecked, setServerChecked] = useState(false);
+	const [recentPlayers, setRecentPlayers] = useState<go_services.RecentPlayersResponse | null>(null);
+	const [recentChecked, setRecentChecked] = useState(false);
 	const [version, setVersion] = useState('');
 	const [update, setUpdate] = useState<go_services.UpdateStatus | null>(null);
 	const [updateChecked, setUpdateChecked] = useState(false);
@@ -84,6 +103,17 @@ function App() {
 		}
 	}, []);
 
+	const refreshRecentPlayers = useCallback(async () => {
+		try {
+			setRecentPlayers(await GetRecentPlayers());
+		} catch (error) {
+			console.error('Failed to get recent players:', error);
+			setRecentPlayers(null);
+		} finally {
+			setRecentChecked(true);
+		}
+	}, []);
+
 	useEffect(() => {
 		EventsOn('sync:progress', (p: SyncProgress) => setProgress(p));
 		EventsOn('update:progress', (p: UpdateProgress) => setUpdateProgress(p));
@@ -96,6 +126,7 @@ function App() {
 	useEffect(() => {
 		refreshClientStatus();
 		refreshServerStatus();
+		refreshRecentPlayers();
 		GetClientVersion().then(setVersion).catch(() => setVersion(''));
 
 		// Checked once at startup rather than on a timer: this is a launcher
@@ -106,9 +137,12 @@ function App() {
 			.catch(() => setUpdate(null))
 			.finally(() => setUpdateChecked(true));
 
-		const timer = setInterval(refreshServerStatus, SERVER_STATUS_POLL_MS);
+		const timer = setInterval(() => {
+			refreshServerStatus();
+			refreshRecentPlayers();
+		}, SERVER_STATUS_POLL_MS);
 		return () => clearInterval(timer);
-	}, [refreshClientStatus, refreshServerStatus]);
+	}, [refreshClientStatus, refreshServerStatus, refreshRecentPlayers]);
 
 	const syncMods = async () => {
 		if (isSyncing) return;
@@ -240,6 +274,12 @@ function App() {
 	const launcherInstalled = !!clientStatus?.launcherInstalled;
 	const serverOnline = !!serverStatus?.dockerStatus?.running;
 	const players = serverStatus?.players;
+
+	// Who is on *right now* comes from the live RCON roster we already poll,
+	// not from the history — a crashed server never writes a "left the game"
+	// line, so anything derived from the log alone would stay stuck on "online".
+	const onlineNow = new Set(serverOnline ? players?.players ?? [] : []);
+	const recent = recentPlayers?.players ?? [];
 
 	// SyncMods needs the Prism instance to already exist (it is created through
 	// Prism's import UI on first launch), so only offer it once it does.
@@ -433,6 +473,46 @@ function App() {
 								<DownloadIcon />
 								Setup guide
 							</Link>
+						)}
+					</div>
+				</section>
+
+				<section className="card recent" aria-label="Recent players">
+					<div className="card__head">
+						<UsersIcon />
+						<h2>Recently on</h2>
+						<span className="spacer" />
+						<span className="meta">Last {recentPlayers?.windowDays ?? 7} days</span>
+					</div>
+					<div className="card__body">
+						{recent.length === 0 ? (
+							<p className="recent__empty">
+								{recentChecked ? 'Nobody has been on this week.' : 'Checking…'}
+							</p>
+						) : (
+							<ul className="recent__list">
+								{recent.slice(0, RECENT_PLAYERS_SHOWN).map((player) => {
+									const isOnline = onlineNow.has(player.username);
+									return (
+										<li className="recent__row" key={player.username}>
+											{player.uuid && (
+												<img
+													className="recent__head"
+													src={`https://minotar.net/helm/${player.uuid}/32.png`}
+													alt=""
+													onError={(e) => { e.currentTarget.style.display = 'none'; }}
+												/>
+											)}
+											<span className="recent__name">{player.username}</span>
+											<span className="spacer" />
+											<span className={`recent__when ${isOnline ? 't-ok' : ''}`}>
+												{isOnline && <span className="dot dot--ok dot--live" />}
+												{isOnline ? 'Online now' : timeAgo(player.lastSeen)}
+											</span>
+										</li>
+									);
+								})}
+							</ul>
 						)}
 					</div>
 				</section>

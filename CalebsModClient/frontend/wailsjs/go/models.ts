@@ -180,6 +180,56 @@ export namespace go_services {
 	        this.players = source["players"];
 	    }
 	}
+	export class RecentPlayer {
+	    username: string;
+	    uuid: string;
+	    lastSeen: number;
+	    joinCount: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new RecentPlayer(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.username = source["username"];
+	        this.uuid = source["uuid"];
+	        this.lastSeen = source["lastSeen"];
+	        this.joinCount = source["joinCount"];
+	    }
+	}
+	export class RecentPlayersResponse {
+	    windowDays: number;
+	    players: RecentPlayer[];
+	
+	    static createFrom(source: any = {}) {
+	        return new RecentPlayersResponse(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.windowDays = source["windowDays"];
+	        this.players = this.convertValues(source["players"], RecentPlayer);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class ServerSetting {
 	    key: string;
 	    label: string;

@@ -90,11 +90,22 @@ export class DatabaseService implements OnModuleInit {
         updated_at INTEGER NOT NULL
       );
 
+      CREATE TABLE IF NOT EXISTS player_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT NOT NULL,
+        uuid TEXT,
+        event TEXT NOT NULL,
+        occurred_at INTEGER NOT NULL,
+        UNIQUE (username, event, occurred_at)
+      );
+
       CREATE INDEX IF NOT EXISTS idx_access_requests_status ON access_requests(status);
       CREATE INDEX IF NOT EXISTS idx_access_requests_username ON access_requests(username);
       CREATE INDEX IF NOT EXISTS idx_audit_log_created_at ON audit_log(created_at);
       CREATE INDEX IF NOT EXISTS idx_revision_files_revision_id ON revision_files(revision_id);
       CREATE INDEX IF NOT EXISTS idx_revision_files_file_sha256 ON revision_files(file_sha256);
+      CREATE INDEX IF NOT EXISTS idx_player_events_occurred_at ON player_events(occurred_at);
+      CREATE INDEX IF NOT EXISTS idx_player_events_username ON player_events(username);
     `);
 
     this.migrateExistingData();
