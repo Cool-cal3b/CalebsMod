@@ -4,6 +4,7 @@ import (
 	go_services "CalebsModClient/go-services"
 	"context"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -97,6 +98,11 @@ func (m *MinecraftService) CheckForClientUpdate() go_services.UpdateStatus {
 	return go_services.CheckForClientUpdate()
 }
 
+// How long the graceful window close gets before this process exits anyway.
+// Long enough that a slow shutdown is not cut short, short enough that a user
+// watching the update never sees two windows side by side.
+const quitGraceDuration = 3 * time.Second
+
 // ApplyClientUpdate installs the newer client and restarts into it. It returns
 // as soon as the replacement succeeds so the UI can say what is happening; the
 // window then closes a moment later, once the new process is on screen.
@@ -113,6 +119,17 @@ func (m *MinecraftService) ApplyClientUpdate() error {
 	go func() {
 		time.Sleep(750 * time.Millisecond)
 		runtime.Quit(m.ctx)
+
+		// runtime.Quit only asks the window to close, and that request has been
+		// observed not to take effect: after an update it left the old process
+		// running beside the new one, two identical windows on screen with no
+		// way to tell which was which. By this point the new client is already
+		// up and this process owns nothing worth saving - it is holding the
+		// replaced binary open, which is what stops the next launch from
+		// tidying it away. So give the graceful path a moment and then leave
+		// regardless.
+		time.Sleep(quitGraceDuration)
+		os.Exit(0)
 	}()
 
 	return nil
