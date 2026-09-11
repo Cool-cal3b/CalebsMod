@@ -73,22 +73,6 @@ export class NotificationsGateway
     this.broadcastRecipients();
   }
 
-  deviceChanged(deviceId: string) {
-    const device = this.notifications.getDevice(deviceId);
-    for (const [client, session] of this.sessions) {
-      if (session.device.id !== deviceId || !device) continue;
-      session.device = device;
-      this.send(client, 'device.status', { device });
-      if (device.status === 'revoked') {
-        client.close(4003, 'Device revoked');
-      } else if (device.status === 'approved') {
-        this.sendRecipients(client, device);
-        this.deliverPending(client, device);
-      }
-    }
-    this.broadcastRecipients();
-  }
-
   private handleMessage(client: WebSocket, raw: string) {
     let message: ClientMessage;
     try {
@@ -147,10 +131,7 @@ export class NotificationsGateway
           );
           session.device = this.notifications.getDevice(session.device.id)!;
           this.send(client, 'settings.result', { ok: true }, message.requestId);
-          if (
-            session.device.acceptsDirectPings &&
-            session.device.status === 'approved'
-          ) {
+          if (session.device.acceptsDirectPings) {
             this.deliverPending(client, session.device);
           }
           this.broadcastRecipients();
@@ -179,6 +160,7 @@ export class NotificationsGateway
     );
     if (!device) {
       this.sendError(client, message.requestId, 'Invalid device credentials');
+      // The agent treats this close code as "register again".
       client.close(4002, 'Invalid credentials');
       return;
     }
@@ -189,10 +171,7 @@ export class NotificationsGateway
     this.sessions.set(client, { device });
     this.notifications.markConnected(device.id);
     this.send(client, 'auth.result', { device }, message.requestId);
-    if (device.status === 'approved') {
-      this.sendRecipients(client, device);
-      if (device.acceptsDirectPings) this.deliverPending(client, device);
-    }
+    if (device.acceptsDirectPings) this.deliverPending(client, device);
     this.broadcastRecipients();
   }
 
@@ -200,7 +179,6 @@ export class NotificationsGateway
     let delivered = false;
     for (const [client, session] of this.sessions) {
       if (
-        session.device.status === 'approved' &&
         session.device.acceptsDirectPings &&
         session.device.username.toLowerCase() ===
           event.recipientUsername.toLowerCase()
@@ -235,18 +213,14 @@ export class NotificationsGateway
 
   private broadcastRecipients() {
     for (const [client, session] of this.sessions) {
-      if (session.device.status === 'approved')
-        this.sendRecipients(client, session.device);
+      this.sendRecipients(client, session.device);
     }
   }
 
   private connectedUsernames() {
     const usernames = new Set<string>();
     for (const session of this.sessions.values()) {
-      if (
-        session.device.status === 'approved' &&
-        session.device.acceptsDirectPings
-      ) {
+      if (session.device.acceptsDirectPings) {
         usernames.add(session.device.username.toLowerCase());
       }
     }

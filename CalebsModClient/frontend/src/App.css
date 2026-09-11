@@ -143,45 +143,10 @@
     border-bottom: 0;
 }
 
-.notification-register {
-	display: grid;
-	gap: 1rem;
+/* Short enough that a row with a Ping button is no taller than one without. */
+.recent__ping {
+    height: 24px;
 }
-
-.notification-list {
-	list-style: none;
-	margin: 0;
-	padding: 0;
-}
-
-.notification-row {
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	gap: 1rem;
-	padding: .75rem 0;
-	border-bottom: 1px solid var(--line);
-}
-
-.notification-row:last-child { border-bottom: 0; }
-.notification-presence { display: block; margin-top: .2rem; }
-.notification-error { overflow-wrap: anywhere; }
-
-.notification-settings {
-	display: grid;
-	gap: 1rem;
-}
-
-.notification-settings label {
-	display: flex;
-	align-items: flex-start;
-	gap: .75rem;
-	cursor: pointer;
-}
-
-.notification-settings input { margin-top: .25rem; }
-.notification-settings .meta { display: block; margin-top: .2rem; }
-.admin-device-actions { display: flex; gap: .5rem; }
 
 /* Skin heads come from a third party, so the row has to look right without
    them: the name carries the row and the image only ever adds to it. */

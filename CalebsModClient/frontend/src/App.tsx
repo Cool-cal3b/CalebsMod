@@ -13,7 +13,8 @@ import {
 	CheckForClientUpdate,
 	ApplyClientUpdate,
 } from '../wailsjs/go/main/MinecraftService';
-import { go_services } from '../wailsjs/go/models';
+import { GetNotificationState, PingPlayer, SetPingsEnabled } from '../wailsjs/go/main/NotificationService';
+import { go_services, notificationagent } from '../wailsjs/go/models';
 import { EventsOn, EventsOff } from '../wailsjs/runtime/runtime';
 import { useState, useEffect, useCallback } from 'react';
 import ConfirmModal from './components/ConfirmModal';
@@ -39,7 +40,7 @@ import {
 	UpdateIcon,
 	UsersIcon,
 	BookIcon,
-	SettingsIcon,
+	BellIcon,
 } from './components/Icons';
 
 const SERVER_ADDRESS = 'mc.calebwash.com';
@@ -91,6 +92,18 @@ function App() {
 	const [updateChecked, setUpdateChecked] = useState(false);
 	const [isUpdating, setIsUpdating] = useState(false);
 	const [updateProgress, setUpdateProgress] = useState<UpdateProgress | null>(null);
+	// Null wherever there is no notification agent to ask, which hides pinging.
+	const [pings, setPings] = useState<notificationagent.State | null>(null);
+	const [pingBusy, setPingBusy] = useState('');
+
+	const refreshPings = useCallback(async () => {
+		try {
+			setPings(await GetNotificationState());
+		} catch (error) {
+			console.error('Failed to get notification agent state:', error);
+			setPings(null);
+		}
+	}, []);
 
 	const refreshClientStatus = useCallback(async () => {
 		try {
@@ -144,6 +157,7 @@ function App() {
 		refreshClientStatus();
 		refreshServerStatus();
 		refreshRecentPlayers();
+		refreshPings();
 		GetClientVersion().then(setVersion).catch(() => setVersion(''));
 		refreshUpdateStatus();
 
@@ -151,6 +165,7 @@ function App() {
 		const homepageTimer = setInterval(() => {
 			refreshClientStatus();
 			refreshRecentPlayers();
+			refreshPings();
 		}, HOMEPAGE_STATUS_POLL_MS);
 		const updateTimer = setInterval(refreshUpdateStatus, UPDATE_CHECK_POLL_MS);
 		return () => {
@@ -158,7 +173,7 @@ function App() {
 			clearInterval(homepageTimer);
 			clearInterval(updateTimer);
 		};
-	}, [refreshClientStatus, refreshServerStatus, refreshRecentPlayers, refreshUpdateStatus]);
+	}, [refreshClientStatus, refreshServerStatus, refreshRecentPlayers, refreshPings, refreshUpdateStatus]);
 
 	const syncMods = async () => {
 		if (isSyncing) return;
@@ -221,6 +236,35 @@ function App() {
 		} catch (error) {
 			console.error('Failed to launch Minecraft:', error);
 			toast.error('Could not launch Minecraft', errorText(error));
+		}
+	};
+
+	const pingPlayer = async (username: string) => {
+		setPingBusy(username);
+		try {
+			const result = await PingPlayer(username);
+			toast.success(
+				result.deliveredNow ? 'Ping sent' : 'Ping queued',
+				result.deliveredNow
+					? `${username} will get a notification.`
+					: `${username} will get it if their PC comes online in the next 30 minutes.`,
+			);
+		} catch (error) {
+			toast.error('Could not send ping', errorText(error));
+		} finally {
+			setPingBusy('');
+		}
+	};
+
+	const togglePings = async () => {
+		if (!pings) return;
+		setPingBusy('settings');
+		try {
+			setPings(await SetPingsEnabled(!pings.settings.directPings));
+		} catch (error) {
+			toast.error('Could not change pings', errorText(error));
+		} finally {
+			setPingBusy('');
 		}
 	};
 
@@ -297,6 +341,37 @@ function App() {
 	// line, so anything derived from the log alone would stay stuck on "online".
 	const onlineNow = new Set(serverOnline ? players?.players ?? [] : []);
 	const recent = recentPlayers?.players ?? [];
+
+	// Pinging needs this PC registered and connected, and only reaches players
+	// whose own PC has registered. The server already leaves this account out.
+	const pingable = new Map(
+		(pings?.registered && pings.backendConnected ? pings.recipients ?? [] : [])
+			.filter((recipient) => recipient.acceptsDirectPings)
+			.map((recipient) => [recipient.username.toLowerCase(), recipient] as const),
+	);
+	const shownRecent = recent.slice(0, RECENT_PLAYERS_SHOWN);
+	// Someone who has not played lately is exactly who a ping is for, so they
+	// stay listed after dropping out of the recent window.
+	const shownNames = new Set(shownRecent.map((player) => player.username.toLowerCase()));
+	const quietRecipients = [...pingable.values()].filter(
+		(recipient) => !shownNames.has(recipient.username.toLowerCase()),
+	);
+
+	const renderPingButton = (username: string) => (
+		<button
+			className="btn btn--ghost btn--sm recent__ping"
+			onClick={() => pingPlayer(username)}
+			disabled={pingBusy !== ''}
+			title={
+				pingable.get(username.toLowerCase())?.connected
+					? `Send ${username} a notification to come play`
+					: `${username}'s PC is off. The ping waits 30 minutes for it.`
+			}
+		>
+			{pingBusy === username ? <span className="spinner" /> : <BellIcon />}
+			Ping
+		</button>
+	);
 
 	// SyncMods needs the Prism instance to already exist (it is created through
 	// Prism's import UI on first launch), so only offer it once it does.
@@ -513,15 +588,32 @@ function App() {
 						<h2>Recently on</h2>
 						<span className="spacer" />
 						<span className="meta">Last {recentPlayers?.windowDays ?? 7} days</span>
+						{pings && (
+							<button
+								className="btn btn--ghost btn--sm"
+								onClick={togglePings}
+								disabled={pingBusy === 'settings'}
+								title={
+									!pings.settings.directPings
+										? 'Friends cannot ping this PC. Click to allow it.'
+										: pings.registered
+											? `Friends can ping ${pings.username} on this PC. Click to stop.`
+											: 'Launch Minecraft once and friends will be able to ping this PC.'
+								}
+							>
+								<BellIcon />
+								{pings.settings.directPings ? 'Pings on' : 'Pings off'}
+							</button>
+						)}
 					</div>
 					<div className="card__body">
-						{recent.length === 0 ? (
+						{shownRecent.length === 0 && quietRecipients.length === 0 ? (
 							<p className="recent__empty">
 								{recentChecked ? 'Nobody has been on this week.' : 'Checking…'}
 							</p>
 						) : (
 							<ul className="recent__list">
-								{recent.slice(0, RECENT_PLAYERS_SHOWN).map((player) => {
+								{shownRecent.map((player) => {
 									const isOnline = onlineNow.has(player.username);
 									return (
 										<li className="recent__row" key={player.username}>
@@ -542,9 +634,18 @@ function App() {
 												{isOnline && <span className="dot dot--ok dot--live" />}
 												{isOnline ? 'Online now' : timeAgo(player.lastSeen)}
 											</span>
+											{!isOnline && pingable.has(player.username.toLowerCase()) && renderPingButton(player.username)}
 										</li>
 									);
 								})}
+								{quietRecipients.map((recipient) => (
+									<li className="recent__row" key={recipient.username}>
+										<span className="recent__name">{recipient.username}</span>
+										<span className="spacer" />
+										<span className="recent__when">Not on lately</span>
+										{renderPingButton(recipient.username)}
+									</li>
+								))}
 							</ul>
 						)}
 					</div>
@@ -567,10 +668,6 @@ function App() {
 				<Link className="btn btn--ghost btn--sm" to="/wiki">
 					<BookIcon />
 					Wiki
-				</Link>
-				<Link className="btn btn--ghost btn--sm" to="/notifications">
-					<SettingsIcon />
-					Pings
 				</Link>
 				<Link className="btn btn--ghost btn--sm" to="/admin">
 					<ShieldIcon />

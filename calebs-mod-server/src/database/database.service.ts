@@ -99,15 +99,45 @@ export class DatabaseService implements OnModuleInit {
         UNIQUE (username, event, occurred_at)
       );
 
+      CREATE INDEX IF NOT EXISTS idx_access_requests_status ON access_requests(status);
+      CREATE INDEX IF NOT EXISTS idx_access_requests_username ON access_requests(username);
+      CREATE INDEX IF NOT EXISTS idx_audit_log_created_at ON audit_log(created_at);
+      CREATE INDEX IF NOT EXISTS idx_revision_files_revision_id ON revision_files(revision_id);
+      CREATE INDEX IF NOT EXISTS idx_revision_files_file_sha256 ON revision_files(file_sha256);
+      CREATE INDEX IF NOT EXISTS idx_player_events_occurred_at ON player_events(occurred_at);
+      CREATE INDEX IF NOT EXISTS idx_player_events_username ON player_events(username);
+    `);
+
+    this.migrateExistingData();
+    this.migrateRevisionFiles();
+    this.initNotificationSchema();
+    this.seedDefaultSettings();
+  }
+
+  private initNotificationSchema() {
+    // The first version of pings registered devices under a typed-in name and
+    // held them for admin approval. Devices now prove their account through
+    // Mojang, and an agent whose credentials stop working registers again on
+    // its own, so the old tables are dropped rather than converted.
+    const columns = this.db
+      .prepare('PRAGMA table_info(notification_devices)')
+      .all() as Array<{ name: string }>;
+    if (columns.some((c) => c.name === 'status')) {
+      this.db.exec(`
+        DROP TABLE IF EXISTS notification_events;
+        DROP TABLE IF EXISTS notification_devices;
+      `);
+    }
+
+    this.db.exec(`
       CREATE TABLE IF NOT EXISTS notification_devices (
         id TEXT PRIMARY KEY,
         username TEXT NOT NULL,
+        uuid TEXT NOT NULL,
         token_hash TEXT NOT NULL UNIQUE,
         device_name TEXT NOT NULL,
-        status TEXT NOT NULL DEFAULT 'pending',
         accepts_direct_pings INTEGER NOT NULL DEFAULT 1,
         created_at INTEGER NOT NULL,
-        approved_at INTEGER,
         last_connected_at INTEGER
       );
 
@@ -124,22 +154,10 @@ export class DatabaseService implements OnModuleInit {
         FOREIGN KEY (acknowledged_by_device_id) REFERENCES notification_devices(id)
       );
 
-      CREATE INDEX IF NOT EXISTS idx_access_requests_status ON access_requests(status);
-      CREATE INDEX IF NOT EXISTS idx_access_requests_username ON access_requests(username);
-      CREATE INDEX IF NOT EXISTS idx_audit_log_created_at ON audit_log(created_at);
-      CREATE INDEX IF NOT EXISTS idx_revision_files_revision_id ON revision_files(revision_id);
-      CREATE INDEX IF NOT EXISTS idx_revision_files_file_sha256 ON revision_files(file_sha256);
-      CREATE INDEX IF NOT EXISTS idx_player_events_occurred_at ON player_events(occurred_at);
-      CREATE INDEX IF NOT EXISTS idx_player_events_username ON player_events(username);
       CREATE INDEX IF NOT EXISTS idx_notification_devices_username ON notification_devices(username);
-      CREATE INDEX IF NOT EXISTS idx_notification_devices_status ON notification_devices(status);
       CREATE INDEX IF NOT EXISTS idx_notification_events_recipient ON notification_events(recipient_username, expires_at);
       CREATE INDEX IF NOT EXISTS idx_notification_events_cooldown ON notification_events(sender_username, recipient_username, created_at);
     `);
-
-    this.migrateExistingData();
-    this.migrateRevisionFiles();
-    this.seedDefaultSettings();
   }
 
   private migrateRevisionFiles() {

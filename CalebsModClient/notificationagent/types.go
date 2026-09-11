@@ -1,6 +1,6 @@
 package notificationagent
 
-const ProtocolVersion = 1
+const ProtocolVersion = 2
 
 // BuildVersion is set by the release script with -ldflags. Development builds
 // intentionally share the literal value below.
@@ -16,11 +16,10 @@ type Settings struct {
 type Device struct {
 	ID                 string `json:"id"`
 	Username           string `json:"username"`
+	UUID               string `json:"uuid"`
 	DeviceName         string `json:"deviceName"`
-	Status             string `json:"status"`
 	AcceptsDirectPings bool   `json:"acceptsDirectPings"`
 	CreatedAt          int64  `json:"createdAt"`
-	ApprovedAt         *int64 `json:"approvedAt"`
 	LastConnectedAt    *int64 `json:"lastConnectedAt"`
 }
 
@@ -31,16 +30,16 @@ type Recipient struct {
 }
 
 type State struct {
-	AgentRunning       bool        `json:"agentRunning"`
-	BackendConnected   bool        `json:"backendConnected"`
-	RegistrationStatus string      `json:"registrationStatus"`
-	Username           string      `json:"username"`
-	Device             *Device     `json:"device,omitempty"`
-	Recipients         []Recipient `json:"recipients"`
-	Settings           Settings    `json:"settings"`
-	LastError          string      `json:"lastError,omitempty"`
-	ProtocolVersion    int         `json:"protocolVersion"`
-	BuildVersion       string      `json:"buildVersion"`
+	AgentRunning     bool        `json:"agentRunning"`
+	BackendConnected bool        `json:"backendConnected"`
+	Registered       bool        `json:"registered"`
+	Username         string      `json:"username"`
+	Device           *Device     `json:"device,omitempty"`
+	Recipients       []Recipient `json:"recipients"`
+	Settings         Settings    `json:"settings"`
+	LastError        string      `json:"lastError,omitempty"`
+	ProtocolVersion  int         `json:"protocolVersion"`
+	BuildVersion     string      `json:"buildVersion"`
 }
 
 type PingResult struct {

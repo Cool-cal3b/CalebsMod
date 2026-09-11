@@ -174,53 +174,6 @@ type PlayersInfo struct {
 	Players []string `json:"players"`
 }
 
-type NotificationDevice struct {
-	ID                 string `json:"id"`
-	Username           string `json:"username"`
-	DeviceName         string `json:"deviceName"`
-	Status             string `json:"status"`
-	AcceptsDirectPings bool   `json:"acceptsDirectPings"`
-	CreatedAt          int64  `json:"createdAt"`
-	ApprovedAt         *int64 `json:"approvedAt"`
-	LastConnectedAt    *int64 `json:"lastConnectedAt"`
-}
-
-func GetNotificationDevices() ([]NotificationDevice, error) {
-	response, err := MakeAuthenticatedGetRequest("/api/notifications/admin/devices")
-	if err != nil {
-		return nil, err
-	}
-	var devices []NotificationDevice
-	if err := json.Unmarshal(response, &devices); err != nil {
-		return nil, err
-	}
-	return devices, nil
-}
-
-func ApproveNotificationDevice(id string) (NotificationDevice, error) {
-	response, err := MakeAuthenticatedPostRequest("/api/notifications/admin/devices/"+id+"/approve", nil)
-	if err != nil {
-		return NotificationDevice{}, err
-	}
-	var device NotificationDevice
-	if err := json.Unmarshal(response, &device); err != nil {
-		return NotificationDevice{}, err
-	}
-	return device, nil
-}
-
-func RevokeNotificationDevice(id string) (NotificationDevice, error) {
-	response, err := MakeAuthenticatedPostRequest("/api/notifications/admin/devices/"+id+"/revoke", nil)
-	if err != nil {
-		return NotificationDevice{}, err
-	}
-	var device NotificationDevice
-	if err := json.Unmarshal(response, &device); err != nil {
-		return NotificationDevice{}, err
-	}
-	return device, nil
-}
-
 type ModpackUploadResponse struct {
 	FilesProcessed int               `json:"filesProcessed"`
 	Files          []ModpackFileInfo `json:"files"`

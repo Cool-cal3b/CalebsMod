@@ -46,7 +46,11 @@ func (m *MinecraftService) startup(ctx context.Context) {
 }
 
 func (m *MinecraftService) StartMinecraftClient() (bool, error) {
-	return go_services.StartMinecraftClient()
+	launched, err := go_services.StartMinecraftClient()
+	if launched {
+		go_services.EnsurePingIdentityAfterLaunch()
+	}
+	return launched, err
 }
 
 func (m *MinecraftService) CheckLauncherInstalled() (bool, error) {

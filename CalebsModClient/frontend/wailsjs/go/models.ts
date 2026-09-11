@@ -132,32 +132,6 @@ export namespace go_services {
 		    return a;
 		}
 	}
-	export class NotificationDevice {
-	    id: string;
-	    username: string;
-	    deviceName: string;
-	    status: string;
-	    acceptsDirectPings: boolean;
-	    createdAt: number;
-	    approvedAt?: number;
-	    lastConnectedAt?: number;
-	
-	    static createFrom(source: any = {}) {
-	        return new NotificationDevice(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	        this.username = source["username"];
-	        this.deviceName = source["deviceName"];
-	        this.status = source["status"];
-	        this.acceptsDirectPings = source["acceptsDirectPings"];
-	        this.createdAt = source["createdAt"];
-	        this.approvedAt = source["approvedAt"];
-	        this.lastConnectedAt = source["lastConnectedAt"];
-	    }
-	}
 	export class PackFileDto {
 	    sha256: string;
 	    fileName: string;
@@ -384,11 +358,10 @@ export namespace notificationagent {
 	export class Device {
 	    id: string;
 	    username: string;
+	    uuid: string;
 	    deviceName: string;
-	    status: string;
 	    acceptsDirectPings: boolean;
 	    createdAt: number;
-	    approvedAt?: number;
 	    lastConnectedAt?: number;
 	
 	    static createFrom(source: any = {}) {
@@ -399,11 +372,10 @@ export namespace notificationagent {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
 	        this.username = source["username"];
+	        this.uuid = source["uuid"];
 	        this.deviceName = source["deviceName"];
-	        this.status = source["status"];
 	        this.acceptsDirectPings = source["acceptsDirectPings"];
 	        this.createdAt = source["createdAt"];
-	        this.approvedAt = source["approvedAt"];
 	        this.lastConnectedAt = source["lastConnectedAt"];
 	    }
 	}
@@ -460,7 +432,7 @@ export namespace notificationagent {
 	export class State {
 	    agentRunning: boolean;
 	    backendConnected: boolean;
-	    registrationStatus: string;
+	    registered: boolean;
 	    username: string;
 	    device?: Device;
 	    recipients: Recipient[];
@@ -477,7 +449,7 @@ export namespace notificationagent {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.agentRunning = source["agentRunning"];
 	        this.backendConnected = source["backendConnected"];
-	        this.registrationStatus = source["registrationStatus"];
+	        this.registered = source["registered"];
 	        this.username = source["username"];
 	        this.device = this.convertValues(source["device"], Device);
 	        this.recipients = this.convertValues(source["recipients"], Recipient);

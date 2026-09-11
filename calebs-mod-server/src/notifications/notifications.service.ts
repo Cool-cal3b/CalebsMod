@@ -1,18 +1,29 @@
 import { Injectable } from '@nestjs/common';
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'crypto';
 import { DatabaseService } from '../database/database.service';
-
-export type DeviceStatus = 'pending' | 'approved' | 'revoked';
+import { MojangProfile, MojangSessionService } from './mojang-session.service';
 
 export interface NotificationDevice {
   id: string;
   username: string;
+  uuid: string;
   deviceName: string;
-  status: DeviceStatus;
   acceptsDirectPings: boolean;
   createdAt: number;
-  approvedAt: number | null;
   lastConnectedAt: number | null;
+}
+
+export interface RegisterRequest {
+  username: string;
+  serverId: string;
+  deviceName: string;
+  /**
+   * Credentials this PC already holds. Presenting them moves the existing
+   * device to the new account, so switching accounts in Prism does not leave
+   * the old name registered to a PC that no longer plays as it.
+   */
+  deviceId?: string;
+  token?: string;
 }
 
 export interface NotificationEvent {
@@ -28,11 +39,10 @@ export interface NotificationEvent {
 interface DeviceRow {
   id: string;
   username: string;
+  uuid: string;
   device_name: string;
-  status: DeviceStatus;
   accepts_direct_pings: number;
   created_at: number;
-  approved_at: number | null;
   last_connected_at: number | null;
   token_hash?: string;
 }
@@ -53,44 +63,90 @@ interface RecipientRow {
 }
 
 const MINECRAFT_USERNAME = /^[A-Za-z0-9_]{3,16}$/;
+// Minecraft's own server ids are signed SHA-1 hex digests; the client sends a
+// random value of the same shape.
+const SESSION_SERVER_ID = /^-?[0-9a-f]{1,40}$/;
 const PING_TTL_MS = 30 * 60 * 1000;
 const PING_COOLDOWN_MS = 5 * 60 * 1000;
+const DEVICE_COLUMNS =
+  'id, username, uuid, device_name, accepts_direct_pings, created_at, last_connected_at';
 
 @Injectable()
 export class NotificationsService {
-  constructor(private readonly db: DatabaseService) {}
+  constructor(
+    private readonly db: DatabaseService,
+    private readonly mojang: MojangSessionService,
+  ) {}
 
-  register(usernameValue: string, deviceNameValue: string) {
-    const username = usernameValue?.trim();
+  async register(request: RegisterRequest) {
+    const username = request.username?.trim();
     if (!MINECRAFT_USERNAME.test(username)) {
       throw new Error(
         'Minecraft usernames must be 3-16 letters, numbers, or underscores',
       );
     }
+    const serverId = request.serverId?.trim();
+    if (!serverId || !SESSION_SERVER_ID.test(serverId)) {
+      throw new Error(
+        'Missing Minecraft session proof. Update CalebsMod and try again',
+      );
+    }
 
-    const deviceName = (deviceNameValue?.trim() || 'Windows PC').slice(0, 80);
-    const id = randomUUID();
+    const profile = await this.mojang.hasJoined(username, serverId);
+    if (!profile) {
+      throw new Error('Mojang could not confirm this Minecraft account');
+    }
+    if (!this.hasPlayedHere(profile)) {
+      throw new Error(`${profile.name} has not joined the server yet`);
+    }
+
+    const deviceName = (request.deviceName?.trim() || 'Windows PC').slice(
+      0,
+      80,
+    );
     const token = randomBytes(32).toString('base64url');
-    const now = Date.now();
+    const tokenHash = this.hashToken(token);
+    const existing = this.authenticate(
+      request.deviceId ?? '',
+      request.token ?? '',
+    );
 
-    this.db
-      .prepare(
-        `INSERT INTO notification_devices
-         (id, username, token_hash, device_name, status, accepts_direct_pings, created_at)
-         VALUES (?, ?, ?, ?, 'pending', 1, ?)`,
-      )
-      .run(id, username, this.hashToken(token), deviceName, now);
+    let deviceId: string;
+    if (existing) {
+      deviceId = existing.id;
+      this.db
+        .prepare(
+          `UPDATE notification_devices
+           SET username = ?, uuid = ?, token_hash = ?, device_name = ?
+           WHERE id = ?`,
+        )
+        .run(profile.name, profile.id, tokenHash, deviceName, deviceId);
+    } else {
+      deviceId = randomUUID();
+      this.db
+        .prepare(
+          `INSERT INTO notification_devices
+           (id, username, uuid, token_hash, device_name, accepts_direct_pings, created_at)
+           VALUES (?, ?, ?, ?, ?, 1, ?)`,
+        )
+        .run(
+          deviceId,
+          profile.name,
+          profile.id,
+          tokenHash,
+          deviceName,
+          Date.now(),
+        );
+    }
 
-    return { deviceId: id, token, status: 'pending' as const, username };
+    return { deviceId, token, username: profile.name, uuid: profile.id };
   }
 
   authenticate(deviceId: string, token: string): NotificationDevice | null {
     if (!deviceId || !token) return null;
     const row = this.db
       .prepare(
-        `SELECT id, username, device_name, status, accepts_direct_pings,
-                created_at, approved_at, last_connected_at, token_hash
-         FROM notification_devices WHERE id = ?`,
+        `SELECT ${DEVICE_COLUMNS}, token_hash FROM notification_devices WHERE id = ?`,
       )
       .get(deviceId) as DeviceRow | undefined;
     if (!row?.token_hash) return null;
@@ -117,56 +173,13 @@ export class NotificationsService {
       .run(acceptsDirectPings ? 1 : 0, deviceId);
   }
 
-  listDevices(status?: DeviceStatus): NotificationDevice[] {
-    const rows = status
-      ? this.db
-          .prepare(
-            `SELECT id, username, device_name, status, accepts_direct_pings,
-                    created_at, approved_at, last_connected_at
-             FROM notification_devices WHERE status = ? ORDER BY created_at DESC`,
-          )
-          .all(status)
-      : this.db
-          .prepare(
-            `SELECT id, username, device_name, status, accepts_direct_pings,
-                    created_at, approved_at, last_connected_at
-             FROM notification_devices ORDER BY created_at DESC`,
-          )
-          .all();
-    return (rows as DeviceRow[]).map((row) => this.mapDevice(row));
-  }
-
   getDevice(deviceId: string): NotificationDevice | null {
     const row = this.db
       .prepare(
-        `SELECT id, username, device_name, status, accepts_direct_pings,
-                created_at, approved_at, last_connected_at
-         FROM notification_devices WHERE id = ?`,
+        `SELECT ${DEVICE_COLUMNS} FROM notification_devices WHERE id = ?`,
       )
       .get(deviceId) as DeviceRow | undefined;
     return row ? this.mapDevice(row) : null;
-  }
-
-  approve(deviceId: string): NotificationDevice {
-    const result = this.db
-      .prepare(
-        `UPDATE notification_devices
-         SET status = 'approved', approved_at = ? WHERE id = ? AND status != 'revoked'`,
-      )
-      .run(Date.now(), deviceId);
-    if (result.changes === 0)
-      throw new Error('Notification device not found or revoked');
-    return this.getDevice(deviceId)!;
-  }
-
-  revoke(deviceId: string): NotificationDevice {
-    const result = this.db
-      .prepare(
-        "UPDATE notification_devices SET status = 'revoked' WHERE id = ?",
-      )
-      .run(deviceId);
-    if (result.changes === 0) throw new Error('Notification device not found');
-    return this.getDevice(deviceId)!;
   }
 
   listRecipients(senderUsername: string) {
@@ -174,7 +187,7 @@ export class NotificationsService {
       .prepare(
         `SELECT username, MAX(accepts_direct_pings) AS accepts_direct_pings
          FROM notification_devices
-         WHERE status = 'approved' AND lower(username) != lower(?)
+         WHERE lower(username) != lower(?)
          GROUP BY lower(username)
          ORDER BY username COLLATE NOCASE`,
       )
@@ -189,8 +202,6 @@ export class NotificationsService {
     sender: NotificationDevice,
     recipientValue: string,
   ): NotificationEvent {
-    if (sender.status !== 'approved')
-      throw new Error('This device is not approved');
     const recipientUsername = recipientValue?.trim();
     if (!MINECRAFT_USERNAME.test(recipientUsername))
       throw new Error('Invalid recipient');
@@ -201,8 +212,7 @@ export class NotificationsService {
     const recipient = this.db
       .prepare(
         `SELECT username FROM notification_devices
-         WHERE lower(username) = lower(?) AND status = 'approved'
-           AND accepts_direct_pings = 1 LIMIT 1`,
+         WHERE lower(username) = lower(?) AND accepts_direct_pings = 1 LIMIT 1`,
       )
       .get(recipientUsername) as { username: string } | undefined;
     if (!recipient) throw new Error('That player is not accepting pings');
@@ -287,6 +297,20 @@ export class NotificationsService {
     return result.changes > 0;
   }
 
+  /**
+   * The server runs in online mode, so every join in its log was already
+   * authenticated by Mojang. Requiring one keeps pings among people who play
+   * here, rather than open to anyone with a Minecraft account.
+   */
+  private hasPlayedHere(profile: MojangProfile) {
+    return !!this.db
+      .prepare(
+        `SELECT 1 FROM player_events
+         WHERE uuid = ? OR lower(username) = lower(?) LIMIT 1`,
+      )
+      .get(profile.id, profile.name);
+  }
+
   private hashToken(token: string) {
     return createHash('sha256').update(token).digest('hex');
   }
@@ -295,11 +319,10 @@ export class NotificationsService {
     return {
       id: row.id,
       username: row.username,
+      uuid: row.uuid,
       deviceName: row.device_name,
-      status: row.status,
       acceptsDirectPings: Boolean(row.accepts_direct_pings),
       createdAt: row.created_at,
-      approvedAt: row.approved_at ?? null,
       lastConnectedAt: row.last_connected_at ?? null,
     };
   }

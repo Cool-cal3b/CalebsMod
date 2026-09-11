@@ -6,18 +6,10 @@ export function GetNotificationState() {
   return window['go']['main']['NotificationService']['GetNotificationState']();
 }
 
-export function GetPingRecipients() {
-  return window['go']['main']['NotificationService']['GetPingRecipients']();
-}
-
 export function PingPlayer(arg1) {
   return window['go']['main']['NotificationService']['PingPlayer'](arg1);
 }
 
-export function RegisterNotificationDevice(arg1) {
-  return window['go']['main']['NotificationService']['RegisterNotificationDevice'](arg1);
-}
-
-export function UpdateNotificationSettings(arg1) {
-  return window['go']['main']['NotificationService']['UpdateNotificationSettings'](arg1);
+export function SetPingsEnabled(arg1) {
+  return window['go']['main']['NotificationService']['SetPingsEnabled'](arg1);
 }

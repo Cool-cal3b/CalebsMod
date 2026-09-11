@@ -38,6 +38,7 @@ const (
 	taskName                = "CalebsMod Notification Agent"
 	appID                   = "CalebWashburn.CalebsModClient"
 	requestTimeout          = 10 * time.Second
+	closeInvalidCredentials = 4002
 	maxLogSize              = 1024 * 1024
 	cryptProtectUIForbidden = 0x1
 )
@@ -84,6 +85,8 @@ type agentRuntime struct {
 	logger    *log.Logger
 }
 
+func Supported() bool { return true }
+
 func IsAgentMode() bool {
 	for _, arg := range os.Args[1:] {
 		if arg == "--agent" {
@@ -124,13 +127,13 @@ func RunAgent() error {
 		logger:    logger,
 	}
 	a.state = State{
-		AgentRunning:       true,
-		RegistrationStatus: registrationStatus(persisted),
-		Username:           persisted.Username,
-		Recipients:         []Recipient{},
-		Settings:           persisted.Settings,
-		ProtocolVersion:    ProtocolVersion,
-		BuildVersion:       BuildVersion,
+		AgentRunning:    true,
+		Registered:      persisted.DeviceID != "",
+		Username:        persisted.Username,
+		Recipients:      []Recipient{},
+		Settings:        persisted.Settings,
+		ProtocolVersion: ProtocolVersion,
+		BuildVersion:    BuildVersion,
 	}
 
 	listener, err := winio.ListenPipe(pipeName(sid), &winio.PipeConfig{
@@ -244,21 +247,15 @@ func GetState() (State, error) {
 	return state, callAgent("state", nil, &state)
 }
 
-func Register(username string) (State, error) {
+// Register exchanges a Mojang session join for device credentials. The caller
+// has already joined serverID as username; the agent never sees the token.
+func Register(username, serverID string) (State, error) {
 	if err := EnsureRunning(); err != nil {
 		return State{}, err
 	}
 	var state State
-	err := callAgent("register", map[string]string{"username": username}, &state)
+	err := callAgent("register", map[string]string{"username": username, "serverId": serverID}, &state)
 	return state, err
-}
-
-func GetRecipients() ([]Recipient, error) {
-	if err := EnsureRunning(); err != nil {
-		return nil, err
-	}
-	var recipients []Recipient
-	return recipients, callAgent("recipients", nil, &recipients)
 }
 
 func SendPing(username string) (PingResult, error) {
@@ -316,32 +313,15 @@ func (a *agentRuntime) dispatchIPC(request ipcRequest) (interface{}, error) {
 	case "register":
 		var params struct {
 			Username string `json:"username"`
+			ServerID string `json:"serverId"`
 		}
 		if err := json.Unmarshal(request.Params, &params); err != nil {
 			return nil, err
 		}
-		if err := a.register(params.Username); err != nil {
+		if err := a.register(params.Username, params.ServerID); err != nil {
 			return nil, err
 		}
 		return a.snapshot(), nil
-	case "recipients":
-		if a.snapshot().RegistrationStatus != "approved" {
-			return []Recipient{}, nil
-		}
-		message, err := a.request("recipients.get", nil)
-		if err != nil {
-			return nil, err
-		}
-		var data struct {
-			Recipients []Recipient `json:"recipients"`
-		}
-		if err := json.Unmarshal(message.Data, &data); err != nil {
-			return nil, err
-		}
-		a.mu.Lock()
-		a.state.Recipients = data.Recipients
-		a.mu.Unlock()
-		return data.Recipients, nil
 	case "ping":
 		var params struct {
 			Username string `json:"username"`
@@ -386,16 +366,20 @@ func (a *agentRuntime) dispatchIPC(request ipcRequest) (interface{}, error) {
 	}
 }
 
-func (a *agentRuntime) register(username string) error {
+func (a *agentRuntime) register(username, serverID string) error {
+	// Sending the credentials this PC already holds lets the server move the
+	// existing device to the new account instead of orphaning it.
 	a.mu.RLock()
-	already := a.persisted.DeviceID != ""
-	status := a.state.RegistrationStatus
+	deviceID, token := a.persisted.DeviceID, a.token
 	a.mu.RUnlock()
-	if already && status != "revoked" {
-		return errors.New("this device is already registered")
-	}
 	hostname, _ := os.Hostname()
-	body, _ := json.Marshal(map[string]string{"username": strings.TrimSpace(username), "deviceName": hostname})
+	body, _ := json.Marshal(map[string]string{
+		"username":   strings.TrimSpace(username),
+		"serverId":   serverID,
+		"deviceName": hostname,
+		"deviceId":   deviceID,
+		"token":      token,
+	})
 	client := &http.Client{Timeout: requestTimeout}
 	resp, err := client.Post(serverHTTPURL()+"/api/notifications/devices/register", "application/json", bytes.NewReader(body))
 	if err != nil {
@@ -409,7 +393,7 @@ func (a *agentRuntime) register(username string) error {
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("registration failed: %s", strings.TrimSpace(string(responseBody)))
 	}
-	var registered struct{ DeviceID, Token, Status, Username string }
+	var registered struct{ DeviceID, Token, Username string }
 	if err := json.Unmarshal(responseBody, &registered); err != nil {
 		return err
 	}
@@ -423,7 +407,7 @@ func (a *agentRuntime) register(username string) error {
 	a.persisted.Username = registered.Username
 	a.persisted.EncryptedToken = encrypted
 	a.state.Username = registered.Username
-	a.state.RegistrationStatus = registered.Status
+	a.state.Registered = true
 	a.state.Device = nil
 	a.state.Recipients = []Recipient{}
 	err = savePersisted(a.persisted)
@@ -487,10 +471,16 @@ func (a *agentRuntime) websocketLoop() {
 			a.state.BackendConnected = true
 			a.state.LastError = ""
 			a.mu.Unlock()
-			if err := a.write("auth", newRequestID(), map[string]interface{}{
+			err = a.write("auth", newRequestID(), map[string]interface{}{
 				"deviceId": deviceID, "token": token, "protocolVersion": ProtocolVersion,
-			}); err == nil {
+			})
+			if err == nil {
 				err = a.readSocket(conn)
+			}
+			// The server no longer knows these credentials. Retrying them would
+			// fail forever; dropping them lets the client register again.
+			if websocket.IsCloseError(err, closeInvalidCredentials) {
+				a.forgetDevice()
 			}
 			a.connectionFailed(err)
 		}
@@ -541,16 +531,6 @@ func (a *agentRuntime) handleServerMessage(message wsMessage) {
 		if json.Unmarshal(message.Data, &data) == nil {
 			a.setDevice(data.Device)
 			go a.syncCapabilities()
-		}
-	case "device.status":
-		var data struct {
-			Device Device `json:"device"`
-		}
-		if json.Unmarshal(message.Data, &data) == nil {
-			a.setDevice(data.Device)
-			if data.Device.Status == "approved" {
-				go a.syncCapabilities()
-			}
 		}
 	case "recipients.snapshot":
 		var data struct {
@@ -717,8 +697,24 @@ func (a *agentRuntime) setDevice(device Device) {
 	a.mu.Lock()
 	a.state.Device = &device
 	a.state.Username = device.Username
-	a.state.RegistrationStatus = device.Status
+	a.state.Registered = true
 	a.mu.Unlock()
+}
+func (a *agentRuntime) forgetDevice() {
+	a.mu.Lock()
+	a.token = ""
+	a.persisted.DeviceID = ""
+	a.persisted.Username = ""
+	a.persisted.EncryptedToken = ""
+	a.state.Registered = false
+	a.state.Username = ""
+	a.state.Device = nil
+	a.state.Recipients = []Recipient{}
+	if err := savePersisted(a.persisted); err != nil {
+		a.logger.Printf("forget device: %v", err)
+	}
+	a.mu.Unlock()
+	a.logger.Print("server rejected device credentials; waiting to register again")
 }
 func (a *agentRuntime) snapshot() State {
 	a.mu.RLock()
@@ -798,12 +794,6 @@ func serverWebSocketURL() string {
 	return parsed.String()
 }
 func newRequestID() string { return fmt.Sprintf("%d-%d", time.Now().UnixNano(), rand.Int63()) }
-func registrationStatus(state persistedState) string {
-	if state.DeviceID == "" {
-		return "unregistered"
-	}
-	return "pending"
-}
 
 func stateDir() (string, error) {
 	base := os.Getenv("LOCALAPPDATA")

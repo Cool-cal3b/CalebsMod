@@ -4,10 +4,6 @@ import {notificationagent} from '../models';
 
 export function GetNotificationState():Promise<notificationagent.State>;
 
-export function GetPingRecipients():Promise<Array<notificationagent.Recipient>>;
-
 export function PingPlayer(arg1:string):Promise<notificationagent.PingResult>;
 
-export function RegisterNotificationDevice(arg1:string):Promise<notificationagent.State>;
-
-export function UpdateNotificationSettings(arg1:notificationagent.Settings):Promise<notificationagent.State>;
+export function SetPingsEnabled(arg1:boolean):Promise<notificationagent.State>;
