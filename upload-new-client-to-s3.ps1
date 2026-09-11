@@ -72,8 +72,9 @@ if (-not $SkipBuild) {
         # whatever else is sitting there - a `wails dev` run leaves a
         # CalebsModClient-dev.exe, which sorts ahead of the real binary and
         # has shipped as the installed client once already.
-        Write-Host "Running: wails build -clean" -ForegroundColor Cyan
-        wails build -clean
+        $buildLdflags = "-X CalebsModClient/notificationagent.BuildVersion=$newVersion"
+        Write-Host "Running: wails build -clean -ldflags <build version>" -ForegroundColor Cyan
+        wails build -clean -ldflags $buildLdflags
         
         if ($LASTEXITCODE -ne 0) {
             Write-Host "Error: Wails build failed with exit code $LASTEXITCODE" -ForegroundColor Red

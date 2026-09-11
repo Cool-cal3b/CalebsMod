@@ -39,6 +39,7 @@ import {
 	UpdateIcon,
 	UsersIcon,
 	BookIcon,
+	SettingsIcon,
 } from './components/Icons';
 
 const SERVER_ADDRESS = 'mc.calebwash.com';
@@ -566,6 +567,10 @@ function App() {
 				<Link className="btn btn--ghost btn--sm" to="/wiki">
 					<BookIcon />
 					Wiki
+				</Link>
+				<Link className="btn btn--ghost btn--sm" to="/notifications">
+					<SettingsIcon />
+					Pings
 				</Link>
 				<Link className="btn btn--ghost btn--sm" to="/admin">
 					<ShieldIcon />

@@ -16,15 +16,15 @@ import (
 // indexed by Start search no matter how it is signed; a .lnk in this folder
 // is exactly what that search reads.
 const (
-	shortcutBaseName    = "Caleb's Mod Client"
-	shortcutDescription = "Launch Caleb's Mod Client"
-	clientExeName       = "CalebsModClient.exe"
+	shortcutBaseName     = "Caleb's Mod Client"
+	shortcutDescription  = "Launch Caleb's Mod Client"
+	clientExeName        = "CalebsModClient.exe"
+	clientAppUserModelID = "CalebWashburn.CalebsModClient"
 )
 
-// EnsureClientShortcut puts a Start Menu shortcut in place if one is not
-// already there. It is a create-if-missing: a user who moved or renamed their
-// shortcut keeps it, and the common "already installed" case costs one
-// os.Stat.
+// EnsureClientShortcut puts the Start Menu shortcut in place and refreshes its
+// notification identity. Rewriting it is intentional: older releases created
+// the shortcut without the AppUserModelID Windows requires for native toasts.
 //
 // The shortcut points at the fixed install path, %LOCALAPPDATA%\CalebsMod\
 // CalebsModClient.exe. A self-update replaces the file behind that path, never
@@ -51,10 +51,6 @@ func EnsureClientShortcut() error {
 	}
 
 	lnkPath := filepath.Join(programs, shortcutBaseName+".lnk")
-	if _, err := os.Stat(lnkPath); err == nil {
-		return nil
-	}
-
 	if _, err := os.Stat(clientExe); err != nil {
 		return fmt.Errorf("client executable not found at %s: %w", clientExe, err)
 	}
@@ -90,10 +86,38 @@ type comGUID struct {
 }
 
 var (
-	clsidShellLink = comGUID{0x00021401, 0x0000, 0x0000, [8]byte{0xC0, 0, 0, 0, 0, 0, 0, 0x46}}
-	iidShellLinkW  = comGUID{0x000214F9, 0x0000, 0x0000, [8]byte{0xC0, 0, 0, 0, 0, 0, 0, 0x46}}
-	iidPersistFile = comGUID{0x0000010B, 0x0000, 0x0000, [8]byte{0xC0, 0, 0, 0, 0, 0, 0, 0x46}}
+	clsidShellLink   = comGUID{0x00021401, 0x0000, 0x0000, [8]byte{0xC0, 0, 0, 0, 0, 0, 0, 0x46}}
+	iidShellLinkW    = comGUID{0x000214F9, 0x0000, 0x0000, [8]byte{0xC0, 0, 0, 0, 0, 0, 0, 0x46}}
+	iidPersistFile   = comGUID{0x0000010B, 0x0000, 0x0000, [8]byte{0xC0, 0, 0, 0, 0, 0, 0, 0x46}}
+	iidPropertyStore = comGUID{0x886D8EEB, 0x8CF2, 0x4446, [8]byte{0x8D, 0x02, 0xCD, 0xBA, 0x1D, 0xBD, 0xCF, 0x99}}
+	appUserModelKey  = propertyKey{
+		FmtID: comGUID{0x9F4C2855, 0x9F79, 0x4B39, [8]byte{0xA8, 0xD0, 0xE1, 0xD4, 0x2D, 0xE1, 0xD5, 0xF3}},
+		PID:   5,
+	}
 )
+
+type propertyKey struct {
+	FmtID comGUID
+	PID   uint32
+}
+type propVariant struct {
+	VT                              uint16
+	Reserved1, Reserved2, Reserved3 uint16
+	Value                           uintptr
+	Value2                          uintptr
+}
+
+type iPropertyStoreVtbl struct {
+	QueryInterface uintptr
+	AddRef         uintptr
+	Release        uintptr
+	GetCount       uintptr
+	GetAt          uintptr
+	GetValue       uintptr
+	SetValue       uintptr
+	Commit         uintptr
+}
+type iPropertyStore struct{ vtbl *iPropertyStoreVtbl }
 
 type iShellLinkWVtbl struct {
 	QueryInterface      uintptr
@@ -175,6 +199,32 @@ func createShortcut(lnkPath, targetPath, workingDir, description, iconPath strin
 		if p, err := syscall.UTF16PtrFromString(iconPath); err == nil {
 			syscall.SyscallN(psl.vtbl.SetIconLocation, uintptr(unsafe.Pointer(psl)), uintptr(unsafe.Pointer(p)), 0)
 		}
+	}
+
+	// Unpackaged desktop apps need this property on their Start shortcut for
+	// Windows to attribute native toast notifications to the application.
+	var store *iPropertyStore
+	hr, _, _ = syscall.SyscallN(psl.vtbl.QueryInterface,
+		uintptr(unsafe.Pointer(psl)),
+		uintptr(unsafe.Pointer(&iidPropertyStore)),
+		uintptr(unsafe.Pointer(&store)),
+	)
+	if uint32(hr) != 0 || store == nil {
+		return fmt.Errorf("QueryInterface(IPropertyStore) failed: 0x%x", uint32(hr))
+	}
+	defer syscall.SyscallN(store.vtbl.Release, uintptr(unsafe.Pointer(store)))
+	appIDPtr, err := syscall.UTF16PtrFromString(clientAppUserModelID)
+	if err != nil {
+		return err
+	}
+	value := propVariant{VT: 31, Value: uintptr(unsafe.Pointer(appIDPtr))} // VT_LPWSTR
+	hr, _, _ = syscall.SyscallN(store.vtbl.SetValue, uintptr(unsafe.Pointer(store)), uintptr(unsafe.Pointer(&appUserModelKey)), uintptr(unsafe.Pointer(&value)))
+	if uint32(hr) != 0 {
+		return fmt.Errorf("IPropertyStore.SetValue(AppUserModelID) failed: 0x%x", uint32(hr))
+	}
+	hr, _, _ = syscall.SyscallN(store.vtbl.Commit, uintptr(unsafe.Pointer(store)))
+	if uint32(hr) != 0 {
+		return fmt.Errorf("IPropertyStore.Commit failed: 0x%x", uint32(hr))
 	}
 
 	var ppf *iPersistFile

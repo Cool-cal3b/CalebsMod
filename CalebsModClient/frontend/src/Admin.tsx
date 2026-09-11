@@ -16,7 +16,11 @@ import {
 	UpdateServerSettings,
 	SelectAndUploadModpackZip,
 	DeleteAllFiles,
+	GetNotificationDevices,
+	ApproveNotificationDevice,
+	RevokeNotificationDevice,
 } from '../wailsjs/go/main/Admin';
+import { go_services } from '../wailsjs/go/models';
 import {
 	ServerStatus,
 	MinecraftServerResponse,
@@ -74,6 +78,9 @@ function Admin() {
 	const [settingsLoading, setSettingsLoading] = useState(false);
 	const [settingsSaving, setSettingsSaving] = useState(false);
 	const [restartRequiredKeys, setRestartRequiredKeys] = useState<string[]>([]);
+	const [notificationDevices, setNotificationDevices] = useState<go_services.NotificationDevice[]>([]);
+	const [devicesLoading, setDevicesLoading] = useState(false);
+	const [deviceBusy, setDeviceBusy] = useState('');
 
 	useEffect(() => {
 		checkAuthStatus();
@@ -110,7 +117,33 @@ function Admin() {
 	useEffect(() => {
 		if (!isLoggedIn) return;
 		loadSettings();
+		loadNotificationDevices();
 	}, [isLoggedIn]);
+
+	const loadNotificationDevices = async () => {
+		setDevicesLoading(true);
+		try {
+			setNotificationDevices(await GetNotificationDevices());
+		} catch (err) {
+			toast.error('Could not load notification devices', errorText(err));
+		} finally {
+			setDevicesLoading(false);
+		}
+	};
+
+	const changeDeviceStatus = async (id: string, action: 'approve' | 'revoke') => {
+		setDeviceBusy(id);
+		try {
+			if (action === 'approve') await ApproveNotificationDevice(id);
+			else await RevokeNotificationDevice(id);
+			await loadNotificationDevices();
+			toast.success(action === 'approve' ? 'Device approved' : 'Device revoked');
+		} catch (err) {
+			toast.error(`Could not ${action} device`, errorText(err));
+		} finally {
+			setDeviceBusy('');
+		}
+	};
 
 	const loadSettings = async () => {
 		setSettingsLoading(true);
@@ -474,6 +507,34 @@ function Admin() {
 						</div>
 					</section>
 				</div>
+
+				<section className="card">
+					<div className="card__head">
+						<UsersIcon /><h2>Notification devices</h2>
+						<span className="spacer" />
+						<button className="btn btn--ghost btn--sm" onClick={loadNotificationDevices} disabled={devicesLoading}>
+							{devicesLoading ? <span className="spinner" /> : <SyncIcon />}Refresh
+						</button>
+					</div>
+					<div className="card__body">
+						{notificationDevices.length === 0 ? <p className="meta">No notification devices have registered.</p> : (
+							<ul className="notification-list">
+								{notificationDevices.map((device) => (
+									<li className="notification-row" key={device.id}>
+										<span>
+											<strong>{device.username}</strong>
+											<span className="meta notification-presence">{device.deviceName} · {device.status}</span>
+										</span>
+										<span className="admin-device-actions">
+											{device.status === 'pending' && <button className="btn btn--sm btn--primary" onClick={() => changeDeviceStatus(device.id, 'approve')} disabled={deviceBusy === device.id}>Approve</button>}
+											{device.status === 'approved' && <button className="btn btn--sm btn--ghost-danger" onClick={() => changeDeviceStatus(device.id, 'revoke')} disabled={deviceBusy === device.id}>Revoke</button>}
+										</span>
+									</li>
+								))}
+							</ul>
+						)}
+					</div>
+				</section>
 
 				<section className="card">
 					<div className="card__head">

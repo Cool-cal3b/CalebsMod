@@ -28,6 +28,8 @@
     "@nestjs/jwt": "^11.0.0",
     "@nestjs/passport": "^11.0.0",
     "@nestjs/platform-express": "^11.0.1",
+    "@nestjs/platform-ws": "^11.1.11",
+    "@nestjs/websockets": "^11.1.11",
     "adm-zip": "^0.5.16",
     "axios": "^1.7.9",
     "bcrypt": "^5.1.1",
@@ -38,7 +40,8 @@
     "passport-jwt": "^4.0.1",
     "rcon-client": "^4.2.3",
     "reflect-metadata": "^0.2.2",
-    "rxjs": "^7.8.1"
+    "rxjs": "^7.8.1",
+    "ws": "^8.18.0"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.2.0",
@@ -54,6 +57,7 @@
     "@types/node": "^22.10.7",
     "@types/passport-jwt": "^4.0.1",
     "@types/supertest": "^6.0.2",
+    "@types/ws": "^8.5.13",
     "eslint": "^9.18.0",
     "eslint-config-prettier": "^10.0.1",
     "eslint-plugin-prettier": "^5.2.2",

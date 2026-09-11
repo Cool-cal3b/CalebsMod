@@ -10,6 +10,7 @@ import { DockerModule } from './docker/docker.module';
 import { DocumentationModule } from './documentation/documentation.module';
 import { InstallModule } from './install/install.module';
 import { PlayerActivityModule } from './player-activity/player-activity.module';
+import { NotificationsModule } from './notifications/notifications.module';
 
 @Module({
   imports: [
@@ -27,6 +28,7 @@ import { PlayerActivityModule } from './player-activity/player-activity.module';
     DocumentationModule,
     InstallModule,
     PlayerActivityModule,
+    NotificationsModule,
   ],
   controllers: [],
   providers: [],

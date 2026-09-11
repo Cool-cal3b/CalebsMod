@@ -1,9 +1,9 @@
 package main
 
 import (
-	"context"
 	go_services "CalebsModClient/go-services"
-	
+	"context"
+
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
@@ -120,4 +120,16 @@ func (a *Admin) DeleteAllFiles() error {
 
 func (a *Admin) DeleteFile(sha256 string) error {
 	return go_services.DeleteFile(sha256)
+}
+
+func (a *Admin) GetNotificationDevices() ([]go_services.NotificationDevice, error) {
+	return go_services.GetNotificationDevices()
+}
+
+func (a *Admin) ApproveNotificationDevice(id string) (go_services.NotificationDevice, error) {
+	return go_services.ApproveNotificationDevice(id)
+}
+
+func (a *Admin) RevokeNotificationDevice(id string) (go_services.NotificationDevice, error) {
+	return go_services.RevokeNotificationDevice(id)
 }

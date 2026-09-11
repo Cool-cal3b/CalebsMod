@@ -7,6 +7,7 @@ import Admin from './Admin'
 import InstallLauncherPage from './InstallLauncher'
 import AllMods from './AllMods'
 import Wiki from './Wiki'
+import Notifications from './Notifications'
 import {ToastProvider} from './components/Toast'
 
 const container = document.getElementById('root')
@@ -23,6 +24,7 @@ root.render(
                     <Route path="/install-launcher" element={<InstallLauncherPage/>} />
                     <Route path="/all-mods" element={<AllMods/>} />
                     <Route path="/wiki" element={<Wiki/>} />
+                    <Route path="/notifications" element={<Notifications/>} />
                 </Routes>
             </BrowserRouter>
         </ToastProvider>

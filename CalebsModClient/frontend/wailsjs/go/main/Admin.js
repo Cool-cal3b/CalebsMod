@@ -6,6 +6,10 @@ export function AdminKeyIsSet() {
   return window['go']['main']['Admin']['AdminKeyIsSet']();
 }
 
+export function ApproveNotificationDevice(arg1) {
+  return window['go']['main']['Admin']['ApproveNotificationDevice'](arg1);
+}
+
 export function ClearAdminKey() {
   return window['go']['main']['Admin']['ClearAdminKey']();
 }
@@ -30,6 +34,10 @@ export function GetManifest() {
   return window['go']['main']['Admin']['GetManifest']();
 }
 
+export function GetNotificationDevices() {
+  return window['go']['main']['Admin']['GetNotificationDevices']();
+}
+
 export function GetServerSettings() {
   return window['go']['main']['Admin']['GetServerSettings']();
 }
@@ -52,6 +60,10 @@ export function Login() {
 
 export function RestartServer() {
   return window['go']['main']['Admin']['RestartServer']();
+}
+
+export function RevokeNotificationDevice(arg1) {
+  return window['go']['main']['Admin']['RevokeNotificationDevice'](arg1);
 }
 
 export function SelectAndUploadModpackZip() {

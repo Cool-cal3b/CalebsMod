@@ -99,6 +99,31 @@ export class DatabaseService implements OnModuleInit {
         UNIQUE (username, event, occurred_at)
       );
 
+      CREATE TABLE IF NOT EXISTS notification_devices (
+        id TEXT PRIMARY KEY,
+        username TEXT NOT NULL,
+        token_hash TEXT NOT NULL UNIQUE,
+        device_name TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        accepts_direct_pings INTEGER NOT NULL DEFAULT 1,
+        created_at INTEGER NOT NULL,
+        approved_at INTEGER,
+        last_connected_at INTEGER
+      );
+
+      CREATE TABLE IF NOT EXISTS notification_events (
+        id TEXT PRIMARY KEY,
+        type TEXT NOT NULL,
+        sender_username TEXT,
+        recipient_username TEXT NOT NULL,
+        payload TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        expires_at INTEGER NOT NULL,
+        acknowledged_at INTEGER,
+        acknowledged_by_device_id TEXT,
+        FOREIGN KEY (acknowledged_by_device_id) REFERENCES notification_devices(id)
+      );
+
       CREATE INDEX IF NOT EXISTS idx_access_requests_status ON access_requests(status);
       CREATE INDEX IF NOT EXISTS idx_access_requests_username ON access_requests(username);
       CREATE INDEX IF NOT EXISTS idx_audit_log_created_at ON audit_log(created_at);
@@ -106,6 +131,10 @@ export class DatabaseService implements OnModuleInit {
       CREATE INDEX IF NOT EXISTS idx_revision_files_file_sha256 ON revision_files(file_sha256);
       CREATE INDEX IF NOT EXISTS idx_player_events_occurred_at ON player_events(occurred_at);
       CREATE INDEX IF NOT EXISTS idx_player_events_username ON player_events(username);
+      CREATE INDEX IF NOT EXISTS idx_notification_devices_username ON notification_devices(username);
+      CREATE INDEX IF NOT EXISTS idx_notification_devices_status ON notification_devices(status);
+      CREATE INDEX IF NOT EXISTS idx_notification_events_recipient ON notification_events(recipient_username, expires_at);
+      CREATE INDEX IF NOT EXISTS idx_notification_events_cooldown ON notification_events(sender_username, recipient_username, created_at);
     `);
 
     this.migrateExistingData();
@@ -115,12 +144,14 @@ export class DatabaseService implements OnModuleInit {
 
   private migrateRevisionFiles() {
     const columns = this.db
-      .prepare("PRAGMA table_info(revision_files)")
+      .prepare('PRAGMA table_info(revision_files)')
       .all() as Array<{ name: string }>;
-    const hasRelativePath = columns.some(c => c.name === 'relative_path');
-    const hasServerOnly = columns.some(c => c.name === 'server_only');
-    if (!hasRelativePath) this.db.exec('ALTER TABLE revision_files ADD COLUMN relative_path TEXT');
-    if (!hasServerOnly) this.db.exec('ALTER TABLE revision_files ADD COLUMN server_only INTEGER');
+    const hasRelativePath = columns.some((c) => c.name === 'relative_path');
+    const hasServerOnly = columns.some((c) => c.name === 'server_only');
+    if (!hasRelativePath)
+      this.db.exec('ALTER TABLE revision_files ADD COLUMN relative_path TEXT');
+    if (!hasServerOnly)
+      this.db.exec('ALTER TABLE revision_files ADD COLUMN server_only INTEGER');
   }
 
   private migrateExistingData() {
@@ -128,8 +159,8 @@ export class DatabaseService implements OnModuleInit {
       .prepare("SELECT name FROM sqlite_master WHERE type='table'")
       .all() as Array<{ name: string }>;
 
-    const hasFilesTable = tables.some(t => t.name === 'files');
-    const hasModsTable = tables.some(t => t.name === 'mods');
+    const hasFilesTable = tables.some((t) => t.name === 'files');
+    const hasModsTable = tables.some((t) => t.name === 'mods');
 
     if (!hasFilesTable && hasModsTable) {
       this.db.exec(`

@@ -4,6 +4,8 @@ import {go_services} from '../models';
 
 export function AdminKeyIsSet():Promise<boolean>;
 
+export function ApproveNotificationDevice(arg1:string):Promise<go_services.NotificationDevice>;
+
 export function ClearAdminKey():Promise<void>;
 
 export function CreateFullResync():Promise<void>;
@@ -16,6 +18,8 @@ export function GetAllFiles(arg1:string):Promise<Array<go_services.PackFileDto>>
 
 export function GetManifest():Promise<Array<go_services.PackFileDto>>;
 
+export function GetNotificationDevices():Promise<Array<go_services.NotificationDevice>>;
+
 export function GetServerSettings():Promise<go_services.ServerSettingsResponse>;
 
 export function GetServerStatus():Promise<go_services.ServerStatusResponse>;
@@ -27,6 +31,8 @@ export function IsLoggedIn():Promise<boolean>;
 export function Login():Promise<void>;
 
 export function RestartServer():Promise<go_services.ServerStatus>;
+
+export function RevokeNotificationDevice(arg1:string):Promise<go_services.NotificationDevice>;
 
 export function SelectAndUploadModpackZip():Promise<go_services.ModpackUploadResponse>;
 

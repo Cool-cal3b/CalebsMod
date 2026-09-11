@@ -132,6 +132,32 @@ export namespace go_services {
 		    return a;
 		}
 	}
+	export class NotificationDevice {
+	    id: string;
+	    username: string;
+	    deviceName: string;
+	    status: string;
+	    acceptsDirectPings: boolean;
+	    createdAt: number;
+	    approvedAt?: number;
+	    lastConnectedAt?: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new NotificationDevice(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.username = source["username"];
+	        this.deviceName = source["deviceName"];
+	        this.status = source["status"];
+	        this.acceptsDirectPings = source["acceptsDirectPings"];
+	        this.createdAt = source["createdAt"];
+	        this.approvedAt = source["approvedAt"];
+	        this.lastConnectedAt = source["lastConnectedAt"];
+	    }
+	}
 	export class PackFileDto {
 	    sha256: string;
 	    fileName: string;
@@ -349,6 +375,135 @@ export namespace go_services {
 	        this.supported = source["supported"];
 	        this.error = source["error"];
 	    }
+	}
+
+}
+
+export namespace notificationagent {
+	
+	export class Device {
+	    id: string;
+	    username: string;
+	    deviceName: string;
+	    status: string;
+	    acceptsDirectPings: boolean;
+	    createdAt: number;
+	    approvedAt?: number;
+	    lastConnectedAt?: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new Device(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.username = source["username"];
+	        this.deviceName = source["deviceName"];
+	        this.status = source["status"];
+	        this.acceptsDirectPings = source["acceptsDirectPings"];
+	        this.createdAt = source["createdAt"];
+	        this.approvedAt = source["approvedAt"];
+	        this.lastConnectedAt = source["lastConnectedAt"];
+	    }
+	}
+	export class PingResult {
+	    eventId: string;
+	    deliveredNow: boolean;
+	    expiresAt: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new PingResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.eventId = source["eventId"];
+	        this.deliveredNow = source["deliveredNow"];
+	        this.expiresAt = source["expiresAt"];
+	    }
+	}
+	export class Recipient {
+	    username: string;
+	    acceptsDirectPings: boolean;
+	    connected: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new Recipient(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.username = source["username"];
+	        this.acceptsDirectPings = source["acceptsDirectPings"];
+	        this.connected = source["connected"];
+	    }
+	}
+	export class Settings {
+	    startWithWindows: boolean;
+	    directPings: boolean;
+	    playerJoined: boolean;
+	    playerLeft: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new Settings(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.startWithWindows = source["startWithWindows"];
+	        this.directPings = source["directPings"];
+	        this.playerJoined = source["playerJoined"];
+	        this.playerLeft = source["playerLeft"];
+	    }
+	}
+	export class State {
+	    agentRunning: boolean;
+	    backendConnected: boolean;
+	    registrationStatus: string;
+	    username: string;
+	    device?: Device;
+	    recipients: Recipient[];
+	    settings: Settings;
+	    lastError?: string;
+	    protocolVersion: number;
+	    buildVersion: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new State(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.agentRunning = source["agentRunning"];
+	        this.backendConnected = source["backendConnected"];
+	        this.registrationStatus = source["registrationStatus"];
+	        this.username = source["username"];
+	        this.device = this.convertValues(source["device"], Device);
+	        this.recipients = this.convertValues(source["recipients"], Recipient);
+	        this.settings = this.convertValues(source["settings"], Settings);
+	        this.lastError = source["lastError"];
+	        this.protocolVersion = source["protocolVersion"];
+	        this.buildVersion = source["buildVersion"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 
 }

@@ -278,6 +278,9 @@ func performUpdate(dataPath, installedClient string, release *ReleaseInfo) error
 	if newClient == "" {
 		return fmt.Errorf("could not find the client in the downloaded files")
 	}
+	if err := prepareNotificationAgentForUpdate(); err != nil {
+		return fmt.Errorf("could not stop the notification agent safely: %w", err)
+	}
 
 	replacedRunning, err := installExecutable(installedClient, newClient)
 	if err != nil {

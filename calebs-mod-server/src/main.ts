@@ -1,8 +1,10 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
+import { WsAdapter } from '@nestjs/platform-ws';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+  app.useWebSocketAdapter(new WsAdapter(app));
 
   app.enableCors({
     origin: true,
@@ -12,7 +14,7 @@ async function bootstrap() {
   const isDevMode = process.env.CALEBS_MOD_ENV === 'dev';
   const defaultPort = isDevMode ? 3001 : 3000;
   const port = process.env.PORT ?? defaultPort;
-  
+
   await app.listen(port);
 
   console.log(`CalebsMod Server running on http://localhost:${port}`);
@@ -26,4 +28,4 @@ async function bootstrap() {
   console.log(`  - POST /api/access/request`);
   console.log(`  - GET  /api/server/status`);
 }
-bootstrap();
+void bootstrap();
