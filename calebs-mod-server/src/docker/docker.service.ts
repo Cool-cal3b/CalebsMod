@@ -4,6 +4,14 @@ import Dockerode from 'dockerode';
 import * as path from 'path';
 import * as fs from 'fs';
 
+export interface DockerServerStatus {
+  exists: boolean;
+  running: boolean;
+  status: string;
+  startedAt?: string;
+  finishedAt?: string;
+}
+
 @Injectable()
 export class DockerService implements OnModuleInit {
   private docker: Dockerode;
@@ -162,7 +170,7 @@ export class DockerService implements OnModuleInit {
     return { status: 'restarted', message: 'Minecraft server restarted' };
   }
 
-  async getServerStatus() {
+  async getServerStatus(): Promise<DockerServerStatus> {
     const container = await this.getContainer();
 
     if (!container) {

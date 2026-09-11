@@ -10,6 +10,7 @@ import { DockerModule } from './docker/docker.module';
 import { DocumentationModule } from './documentation/documentation.module';
 import { InstallModule } from './install/install.module';
 import { PlayerActivityModule } from './player-activity/player-activity.module';
+import { StatusReportService } from './status-report/status-report.service';
 import { NotificationsModule } from './notifications/notifications.module';
 
 @Module({
@@ -31,6 +32,6 @@ import { NotificationsModule } from './notifications/notifications.module';
     NotificationsModule,
   ],
   controllers: [],
-  providers: [],
+  providers: [StatusReportService],
 })
 export class AppModule {}

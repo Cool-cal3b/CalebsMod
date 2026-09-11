@@ -112,6 +112,28 @@ export class PlayerActivityService implements OnModuleInit, OnModuleDestroy {
     return { windowDays, players: rows };
   }
 
+  getAllPlayers(): RecentPlayer[] {
+    return this.db
+      .prepare(
+        `
+        SELECT
+          p.username AS username,
+          MAX(p.occurred_at) AS lastSeen,
+          COUNT(*) AS joinCount,
+          (
+            SELECT p2.uuid FROM player_events p2
+            WHERE p2.username = p.username AND p2.uuid IS NOT NULL
+            ORDER BY p2.occurred_at DESC LIMIT 1
+          ) AS uuid
+        FROM player_events p
+        WHERE p.event = 'join'
+        GROUP BY p.username
+        ORDER BY lastSeen DESC
+      `,
+      )
+      .all() as RecentPlayer[];
+  }
+
   private clampDays(days?: number): number {
     if (!days || !Number.isFinite(days)) return DEFAULT_WINDOW_DAYS;
     return Math.min(Math.max(Math.floor(days), 1), MAX_WINDOW_DAYS);
