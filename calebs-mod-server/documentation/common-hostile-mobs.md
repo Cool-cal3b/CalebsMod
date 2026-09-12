@@ -49,6 +49,65 @@ spawns, and drops reflect the current modpack configuration. Hearts = HP ÷ 2.
 - **Combat note:** do not trade hits. Use reach, cover, or ranged damage, and
   create distance immediately if it becomes enraged.
 
+### Scorpion
+
+| HP | Armor | Melee | Speed | Knockback resistance |
+| --- | --- | --- | --- | --- |
+| 24 (12♥) | 4 | 5 (2.5♥) | 0.3 | 1.0 |
+
+- **Spawn:** desert biome tag only; weight 100; groups of 1-3.
+- **Drops:** a player kill can yield 0-1 Scorpion Tail.
+- **Attack:** its melee hits apply Blindness and Invisibility for 6 seconds.
+- **Defence:** when hurt, it receives Regeneration and the Sandstorm effect for
+  6 seconds.
+- **Combat note:** keep it at range if possible. Its full knockback resistance
+  makes it difficult to control in close quarters.
+
+
+## Mo' Creatures: Nostalgia Edition (`mocreatures` 1.0.0)
+
+### Plain Manticore
+
+The flying lion, bat-winged, scorpion-tailed creature is a Plain Manticore.
+It is the normal-coloured Manticore variant.
+
+| HP | Armor | Melee | Speed |
+| --- | --- | --- | --- |
+| 40 (20♥) | 0 | 7 (3.5♥) | 0.4 |
+
+- **Spawn:** weight 2; groups of 1-3; natural monster spawns, so normally at
+  night. The active configuration allows it in sandy, mountain, and plains
+  biome tags. It can therefore spawn in deserts, but is not limited to them.
+- **Flight:** can fly up to 10 blocks above the ground.
+- **Tail attack:** each successful hit has a 20% chance to trigger its
+  poisoning attack. For the Plain Manticore, the active code applies Blindness
+  II for 15 seconds.
+- **Drops:** 0-1 Dirt Chitin, 0-2 Hide, and 0-2 Big Cat Claws. A player kill
+  has a 7.5% chance to add a Dirt Scorpion Sting, and a 4% chance to add a
+  Manticore Egg. Looting can increase the variable-count drops and each rare
+  drop chance.
+- **Combat note:** avoid fighting directly below it. Keep cover nearby and
+  expect the tail attack to disrupt vision.
+
+### Other Manticore Variants
+
+All active variants fly. Their configured locations and core combat stats are:
+
+| Variant | Spawn biome tags | HP | Melee | Speed |
+| --- | --- | --- | --- | --- |
+| Plain | Sandy, mountain, plains | 40 (20♥) | 7 (3.5♥) | 0.4 |
+| Dark | Sandy, mountain, plains | 35 (17.5♥) | 6.5 (3.25♥) | 0.4 |
+| Toxic | Dead, spooky | 45 (22.5♥) | 6.5 (3.25♥) | 0.4 |
+| Frost | Snowy | 50 (25♥) | 6.5 (3.25♥) | 0.4 |
+| Fire | Nether | 50 (25♥) | 7.5 (3.75♥) | 0.4 |
+
+- **Spawn weights:** each listed variant has weight 2 and appears in groups of
+  1-3 in its configured biome tags.
+- **Variant drops:** each uses the same Hide and Big Cat Claw pools as the
+  Plain Manticore, with its own chitin, sting, and egg type. Dark, Toxic,
+  Frost, and Fire Manticores also have a 7.5% player-kill chance to drop their
+  corresponding heart.
+
 ## Cave Stuff (`cave_stuff` 1.06.06)
 
 ### Impaled
@@ -111,13 +170,24 @@ spawns, and drops reflect the current modpack configuration. Hearts = HP ÷ 2.
 
 ### Witherwood Golem
 
+| HP | Armor | Melee | Speed | Knockback resistance | Size | XP |
+| --- | --- | --- | --- | --- | --- | --- |
+| 75 (37.5♥) | 0 | 5–14 (2.5–7♥) | 0.25 | 1.0 | 0.6 × 1.95 blocks | 120 |
+
 - **Where to find it:** at the base of a generated Wither Tree in the
   Overworld. The tree has dark, dead-looking Witherwood logs, roots, branches,
   and fog.
-- **Spawn:** a Great Wither Tree can create a Witherwood Golem as part of its
-  world generation.
-- **Combat note:** treat the tree as a hostile encounter. Do not linger under
-  it, and use range or cover if a golem appears.
+- **Spawn:** a Great Wither Tree can create one during world generation.
+- **Targets:** players by default. It also retaliates when hurt and will target
+  Iron Golems and zombies.
+- **Attack:** normal melee at speed 1.0. Each hit rolls 5–14 damage, then adds
+  upward knockback. The target's knockback resistance reduces that launch.
+- **Movement:** avoids water and stays within 24 blocks of its tree's home
+  position.
+- **Drops:** no item loot table is present in the active mod cache, so no item
+  drops are configured. Killing one awards 120 XP.
+- **Combat note:** do not trade hits. Keep distance, use cover, and expect its
+  full knockback resistance to make crowd control ineffective.
 
 ## Deadly World (`deadlyworld` 1.20.1-1.1.1)
 
