@@ -81,8 +81,8 @@ func (m *MinecraftService) GetServerStatus() (go_services.ServerStatusResponse, 
 	return go_services.GetPublicServerStatus()
 }
 
-func (m *MinecraftService) GetRecentPlayers() (go_services.RecentPlayersResponse, error) {
-	return go_services.GetRecentPlayers()
+func (m *MinecraftService) GetRecentPlayers(days int) (go_services.RecentPlayersResponse, error) {
+	return go_services.GetRecentPlayers(days)
 }
 
 func (m *MinecraftService) GetDocumentationList() ([]go_services.DocumentationSummary, error) {

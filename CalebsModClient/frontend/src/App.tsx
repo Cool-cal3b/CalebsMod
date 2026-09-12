@@ -45,6 +45,9 @@ import {
 
 const SERVER_ADDRESS = 'mc.calebwash.com';
 const RECENT_PLAYERS_SHOWN = 8;
+const RECENT_PLAYERS_DEFAULT_DAYS = 7;
+// Matches the server's MAX_WINDOW_DAYS clamp in player-activity.service.ts.
+const RECENT_PLAYERS_ALL_DAYS = 183;
 
 // Coarse on purpose: the question this answers is "has anyone been on
 // lately", not exactly when.
@@ -87,6 +90,9 @@ function App() {
 	const [serverUnavailable, setServerUnavailable] = useState(false);
 	const [recentPlayers, setRecentPlayers] = useState<go_services.RecentPlayersResponse | null>(null);
 	const [recentChecked, setRecentChecked] = useState(false);
+	const [allRecentPlayers, setAllRecentPlayers] = useState<go_services.RecentPlayersResponse | null>(null);
+	const [showAllRecent, setShowAllRecent] = useState(false);
+	const [loadingAllRecent, setLoadingAllRecent] = useState(false);
 	const [version, setVersion] = useState('');
 	const [update, setUpdate] = useState<go_services.UpdateStatus | null>(null);
 	const [updateChecked, setUpdateChecked] = useState(false);
@@ -135,7 +141,7 @@ function App() {
 
 	const refreshRecentPlayers = useCallback(async () => {
 		try {
-			setRecentPlayers(await GetRecentPlayers());
+			setRecentPlayers(await GetRecentPlayers(RECENT_PLAYERS_DEFAULT_DAYS));
 		} catch (error) {
 			console.error('Failed to get recent players:', error);
 			setRecentPlayers(null);
@@ -256,6 +262,19 @@ function App() {
 		}
 	};
 
+	const seeMoreRecent = async () => {
+		setLoadingAllRecent(true);
+		try {
+			setAllRecentPlayers(await GetRecentPlayers(RECENT_PLAYERS_ALL_DAYS));
+			setShowAllRecent(true);
+		} catch (error) {
+			console.error('Failed to get all recent players:', error);
+			toast.error('Could not load full player history', errorText(error));
+		} finally {
+			setLoadingAllRecent(false);
+		}
+	};
+
 	const togglePings = async () => {
 		if (!pings) return;
 		setPingBusy('settings');
@@ -349,7 +368,14 @@ function App() {
 			.filter((recipient) => recipient.acceptsDirectPings)
 			.map((recipient) => [recipient.username.toLowerCase(), recipient] as const),
 	);
-	const shownRecent = recent.slice(0, RECENT_PLAYERS_SHOWN);
+	// Expanded view swaps in the 6-month fetch and drops the row cap entirely.
+	const shownRecent = showAllRecent && allRecentPlayers
+		? allRecentPlayers.players
+		: recent.slice(0, RECENT_PLAYERS_SHOWN);
+	const canSeeMoreRecent = !showAllRecent && recentChecked;
+	const recentWindowLabel = showAllRecent
+		? `Last ${Math.round(RECENT_PLAYERS_ALL_DAYS / 30.44)} months`
+		: `Last ${recentPlayers?.windowDays ?? RECENT_PLAYERS_DEFAULT_DAYS} days`;
 	// Someone who has not played lately is exactly who a ping is for, so they
 	// stay listed after dropping out of the recent window.
 	const shownNames = new Set(shownRecent.map((player) => player.username.toLowerCase()));
@@ -587,7 +613,7 @@ function App() {
 						<UsersIcon />
 						<h2>Recently on</h2>
 						<span className="spacer" />
-						<span className="meta">Last {recentPlayers?.windowDays ?? 7} days</span>
+						<span className="meta">{recentWindowLabel}</span>
 						{pings && (
 							<button
 								className="btn btn--ghost btn--sm"
@@ -609,7 +635,11 @@ function App() {
 					<div className="card__body">
 						{shownRecent.length === 0 && quietRecipients.length === 0 ? (
 							<p className="recent__empty">
-								{recentChecked ? 'Nobody has been on this week.' : 'Checking…'}
+								{recentChecked
+									? showAllRecent
+										? 'Nobody has connected in the last 6 months.'
+										: 'Nobody has been on this week.'
+									: 'Checking…'}
 							</p>
 						) : (
 							<ul className="recent__list">
@@ -647,6 +677,17 @@ function App() {
 									</li>
 								))}
 							</ul>
+						)}
+						{canSeeMoreRecent && (
+							<button className="btn btn--ghost btn--sm btn--block recent__more" onClick={seeMoreRecent} disabled={loadingAllRecent}>
+								{loadingAllRecent && <span className="spinner" />}
+								See more
+							</button>
+						)}
+						{showAllRecent && (
+							<button className="btn btn--ghost btn--sm btn--block recent__more" onClick={() => setShowAllRecent(false)}>
+								Show less
+							</button>
 						)}
 					</div>
 				</section>

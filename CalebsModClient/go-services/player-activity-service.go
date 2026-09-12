@@ -2,6 +2,7 @@ package go_services
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 )
 
@@ -19,8 +20,9 @@ type RecentPlayersResponse struct {
 
 // GetRecentPlayers fetches the unauthenticated /api/players/recent so the home
 // screen can show who has been on lately, not just who is on right now.
-func GetRecentPlayers() (RecentPlayersResponse, error) {
-	resp, err := MakeGetRequest("/api/players/recent?days=7")
+// The server clamps days to 183 (~6 months).
+func GetRecentPlayers(days int) (RecentPlayersResponse, error) {
+	resp, err := MakeGetRequest(fmt.Sprintf("/api/players/recent?days=%d", days))
 	if err != nil {
 		return RecentPlayersResponse{}, err
 	}

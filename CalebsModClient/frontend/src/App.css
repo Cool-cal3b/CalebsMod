@@ -178,6 +178,10 @@
     color: var(--ink-3);
 }
 
+.recent__more {
+    margin-top: 8px;
+}
+
 .home__footer {
     display: flex;
     align-items: center;

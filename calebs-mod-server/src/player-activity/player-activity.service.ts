@@ -35,7 +35,7 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
                 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 const POLL_INTERVAL_MS = 10000;
-const MAX_WINDOW_DAYS = 30;
+const MAX_WINDOW_DAYS = 183; // ~6 months, for the home screen's "see more"
 const DEFAULT_WINDOW_DAYS = 7;
 // One day past the largest window we serve, so a backfill always covers it.
 const BACKFILL_DAYS = MAX_WINDOW_DAYS + 1;

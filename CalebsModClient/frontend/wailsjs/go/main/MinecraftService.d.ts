@@ -18,7 +18,7 @@ export function GetDocumentation(arg1:string):Promise<go_services.DocumentationD
 
 export function GetDocumentationList():Promise<Array<go_services.DocumentationSummary>>;
 
-export function GetRecentPlayers():Promise<go_services.RecentPlayersResponse>;
+export function GetRecentPlayers(arg1:number):Promise<go_services.RecentPlayersResponse>;
 
 export function GetServerStatus():Promise<go_services.ServerStatusResponse>;
 
