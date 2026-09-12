@@ -107,6 +107,18 @@ spawns, and drops reflect the current modpack configuration. Hearts = HP ÷ 2.
 - **Combat note:** water is a reliable countermeasure in this pack. A bow or
   shield is possible, not guaranteed.
 
+## Treasure2 (`treasure2` 3.12.1)
+
+### Witherwood Golem
+
+- **Where to find it:** at the base of a generated Wither Tree in the
+  Overworld. The tree has dark, dead-looking Witherwood logs, roots, branches,
+  and fog.
+- **Spawn:** a Great Wither Tree can create a Witherwood Golem as part of its
+  world generation.
+- **Combat note:** treat the tree as a hostile encounter. Do not linger under
+  it, and use range or cover if a golem appears.
+
 ## Deadly World (`deadlyworld` 1.20.1-1.1.1)
 
 Each mimic receives the following configured modifiers to its own base
