@@ -8,6 +8,13 @@ wrong and expensive to discover.
 Style preferences are in `.cursor/rules/communication-style.mdc`: be brief, skip
 summary documents, don't write READMEs unless asked.
 
+## Documentation requirements
+
+When documentation is requested, write it as a brief, informative guide for the
+server's friends. Address the reader generally, not Caleb personally. Never use
+em dashes in documentation. For installed-mod facts, base documentation on the
+local `unzipped-mods/` cache and clearly distinguish anything not verified there.
+
 ## Mod research cache
 
 For any question about the installed Minecraft mods, search and inspect

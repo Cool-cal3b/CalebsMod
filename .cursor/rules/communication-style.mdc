@@ -18,6 +18,12 @@ Instead:
 
 - Do NOT create documentation files, summaries, or guides unless user explicitly requests them
 - Do NOT waste tokens on comprehensive writeups
+- When requested, write documentation as a brief, informative guide for the
+  server's friends
+- Address the reader generally, not Caleb personally
+- Never use em dashes in documentation
+- Base installed-mod facts on the local `unzipped-mods/` cache, and clearly
+  distinguish anything not verified there
 - Focus on code, not explanations
 
 ## Example
