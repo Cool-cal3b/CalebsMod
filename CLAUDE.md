@@ -8,6 +8,14 @@ wrong and expensive to discover.
 Style preferences are in `.cursor/rules/communication-style.mdc`: be brief, skip
 summary documents, don't write READMEs unless asked.
 
+## Mod research cache
+
+For any question about the installed Minecraft mods, search and inspect
+`unzipped-mods/` first. It is the fully extracted contents of the active JARs in
+`calebs-mod-server/minecraft-data/mods/`, maintained locally for fast global
+search and file reads. The cache is intentionally Git-ignored; do not search
+inside JARs unless the needed content is absent from this folder.
+
 ## Prod is this machine
 
 There is no remote host. `mc.calebwash.com` is this Windows PC. Caddy

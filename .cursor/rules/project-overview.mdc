@@ -7,6 +7,13 @@ alwaysApply: true
 
 Private modded Minecraft server for friends. Caleb runs the backend on his home PC; friends only receive a small bootstrapper exe that auto-updates and launches the full client.
 
+## Installed-mod research
+
+For questions about the installed Minecraft mods, inspect and search
+`unzipped-mods/` before opening JAR files. It is a local, fully extracted cache
+of the active JARs from `calebs-mod-server/minecraft-data/mods/`, intended for
+fast global search and file reads. It is Git-ignored and should remain local.
+
 ## Architecture
 
 ```

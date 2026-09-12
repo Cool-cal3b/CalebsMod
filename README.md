@@ -36,6 +36,13 @@ CalebsMod/
 └── README.md
 ```
 
+## Mod Research Cache
+
+`unzipped-mods/` is a local, Git-ignored extraction of the active JARs in
+`calebs-mod-server/minecraft-data/mods/`. Use it for fast searches and reads
+when documenting or investigating installed mods; the JAR files remain the
+source of truth.
+
 ## Building for Distribution
 
 ### 1. Build Launcher

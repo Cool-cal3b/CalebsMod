@@ -8,3 +8,6 @@
 
 # Launcher crash logs pasted in for debugging
 error.txt
+
+# Local research cache: extracted contents of installed mod JARs
+/unzipped-mods/
