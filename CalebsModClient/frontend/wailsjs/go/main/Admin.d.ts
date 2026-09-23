@@ -26,17 +26,17 @@ export function IsLoggedIn():Promise<boolean>;
 
 export function Login():Promise<void>;
 
-export function RestartServer():Promise<go_services.ServerStatus>;
+export function RestartServer():Promise<go_services.MinecraftServerResponse>;
 
 export function SelectAndUploadModpackZip():Promise<go_services.ModpackUploadResponse>;
 
 export function SetAdminKey(arg1:string):Promise<void>;
 
-export function StartServer():Promise<go_services.ServerStatus>;
+export function StartServer():Promise<go_services.MinecraftServerResponse>;
 
-export function StopServer():Promise<go_services.ServerStatus>;
+export function StopServer():Promise<go_services.MinecraftServerResponse>;
 
-export function UpdateDns():Promise<boolean>;
+export function UpdateDns():Promise<go_services.DnsUpdateResponse>;
 
 export function UpdateFileFlags(arg1:string,arg2:boolean,arg3:boolean):Promise<void>;
 

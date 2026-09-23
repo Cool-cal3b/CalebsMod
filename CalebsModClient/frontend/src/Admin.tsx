@@ -19,7 +19,6 @@ import {
 } from '../wailsjs/go/main/Admin';
 import {
 	ServerStatus,
-	MinecraftServerResponse,
 	ServerStatusResponse,
 	ServerSetting,
 	ServerSettingsResponse,
@@ -198,7 +197,7 @@ function Admin() {
 
 	const handleStartServer = async () => {
 		try {
-			const response: MinecraftServerResponse = await StartServer();
+			const response = await StartServer();
 			if (response.status === ServerStatus.STARTED) {
 				toast.success('Server starting', 'Give it a minute before you join.');
 			} else if (response.status === ServerStatus.ALREADY_RUNNING) {
@@ -214,7 +213,7 @@ function Admin() {
 
 	const handleStopServer = async () => {
 		try {
-			const response: MinecraftServerResponse = await StopServer();
+			const response = await StopServer();
 			if (response.status === ServerStatus.STOPPED) {
 				toast.success('Server stopped');
 			} else if (response.status === ServerStatus.ALREADY_STOPPED) {
@@ -231,12 +230,12 @@ function Admin() {
 	const handleRestartServer = async () => {
 		setIsRestarting(true);
 		try {
-			const response: MinecraftServerResponse = await RestartServer();
-			if (response.status === ServerStatus.ERROR) {
-				toast.error('Could not restart the server', response.message);
-			} else {
+			const response = await RestartServer();
+			if (response.status === ServerStatus.RESTARTED || response.status === ServerStatus.STARTED) {
 				toast.success('Server restarting', 'Give it a minute before you join.');
 				setRestartRequiredKeys([]);
+			} else {
+				toast.error('Could not restart the server', response.message);
 			}
 		} catch (err) {
 			toast.error('Could not restart the server', errorText(err));
@@ -276,8 +275,12 @@ function Admin() {
 
 	const handleUpdateDns = async () => {
 		try {
-			await UpdateDns();
-			toast.success('DNS updated', 'mc.calebwash.com now points at this host.');
+			const response = await UpdateDns();
+			if (response.success) {
+				toast.success('DNS updated', response.message || 'mc.calebwash.com now points at this host.');
+			} else {
+				toast.error('Could not update DNS', response.message);
+			}
 		} catch (err) {
 			toast.error('Could not update DNS', errorText(err));
 			console.error(err);

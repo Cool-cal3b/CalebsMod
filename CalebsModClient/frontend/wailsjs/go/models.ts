@@ -30,6 +30,20 @@ export namespace go_services {
 	        this.manifestError = source["manifestError"];
 	    }
 	}
+	export class DnsUpdateResponse {
+	    success: boolean;
+	    message: string;
+
+	    static createFrom(source: any = {}) {
+	        return new DnsUpdateResponse(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.success = source["success"];
+	        this.message = source["message"];
+	    }
+	}
 	export class DockerStatus {
 	    exists: boolean;
 	    running: boolean;
@@ -78,6 +92,20 @@ export namespace go_services {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
 	        this.title = source["title"];
+	    }
+	}
+	export class MinecraftServerResponse {
+	    status: string;
+	    message: string;
+
+	    static createFrom(source: any = {}) {
+	        return new MinecraftServerResponse(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.status = source["status"];
+	        this.message = source["message"];
 	    }
 	}
 	export class ModpackFileInfo {
@@ -479,4 +507,3 @@ export namespace notificationagent {
 	}
 
 }
-

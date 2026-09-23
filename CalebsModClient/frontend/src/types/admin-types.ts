@@ -3,13 +3,9 @@ enum ServerStatus {
 	ALREADY_RUNNING = "already_running",
 	STOPPED = "stopped",
 	ALREADY_STOPPED = "already_stopped",
+	RESTARTED = "restarted",
 	NOT_FOUND = "not_found",
 	ERROR = "error",
-}
-
-interface MinecraftServerResponse {
-	status: ServerStatus;
-	message: string;
 }
 
 interface DockerStatus {
@@ -65,7 +61,6 @@ interface FoundMod {
 
 export { ServerStatus };
 export type {
-	MinecraftServerResponse,
 	ServerStatusResponse,
 	FoundMod,
 	SearchModsResponse,

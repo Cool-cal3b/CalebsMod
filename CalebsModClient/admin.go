@@ -47,19 +47,19 @@ func (a *Admin) GetServerStatus() (go_services.ServerStatusResponse, error) {
 	return go_services.GetServerStatus()
 }
 
-func (a *Admin) StartServer() (go_services.ServerStatus, string, error) {
+func (a *Admin) StartServer() (go_services.MinecraftServerResponse, error) {
 	return go_services.StartServer()
 }
 
-func (a *Admin) StopServer() (go_services.ServerStatus, string, error) {
+func (a *Admin) StopServer() (go_services.MinecraftServerResponse, error) {
 	return go_services.StopServer()
 }
 
-func (a *Admin) RestartServer() (go_services.ServerStatus, string, error) {
+func (a *Admin) RestartServer() (go_services.MinecraftServerResponse, error) {
 	return go_services.RestartServer()
 }
 
-func (a *Admin) UpdateDns() (bool, string, error) {
+func (a *Admin) UpdateDns() (go_services.DnsUpdateResponse, error) {
 	return go_services.UpdateDns()
 }
 
