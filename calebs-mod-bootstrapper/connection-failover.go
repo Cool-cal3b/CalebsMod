@@ -22,7 +22,7 @@ func init() {
 		if primaryErr == nil {
 			return conn, nil
 		}
-		conn, backupErr := dialer.DialContext(ctx, network, "mc.calebwash.com:8443")
+		conn, backupErr := dialer.DialContext(ctx, network, "mc.calebwash.com:9443")
 		if backupErr != nil {
 			return nil, primaryErr
 		}

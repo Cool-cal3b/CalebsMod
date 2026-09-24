@@ -9,7 +9,7 @@ import (
 
 const (
 	serverHost       = "mc.calebwash.com"
-	backupHTTPSPort  = "8443"
+	backupHTTPSPort  = "9443"
 	primaryGamePort  = "25565"
 	backupGamePort   = "25566"
 	primaryDialLimit = 3 * time.Second

@@ -190,7 +190,7 @@ main() {
 
     local release_json latest_version download_url expected_sha
     if ! release_json=$(curl -fsSL --connect-timeout 3 --max-time 30 "$SERVER_URL$VERSION_ENDPOINT"); then
-        release_json=$(curl -fsSL --connect-timeout 3 --max-time 30 "https://mc.calebwash.com:8443$VERSION_ENDPOINT")
+        release_json=$(curl -fsSL --connect-timeout 3 --max-time 30 "https://mc.calebwash.com:9443$VERSION_ENDPOINT")
     fi
 
     latest_version=$(json_field version "$release_json")
