@@ -12,6 +12,7 @@ import (
 	"io"
 	"log"
 	"math/rand"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -462,7 +463,7 @@ func (a *agentRuntime) websocketLoop() {
 		}
 
 		started := time.Now()
-		conn, _, err := (&websocket.Dialer{HandshakeTimeout: requestTimeout}).Dial(serverWebSocketURL(), nil)
+		conn, _, err := (&websocket.Dialer{HandshakeTimeout: requestTimeout, NetDialContext: dialServerWithFallback}).Dial(serverWebSocketURL(), nil)
 		if err != nil {
 			a.connectionFailed(err)
 		} else {
@@ -782,6 +783,28 @@ func serverHTTPURL() string {
 		return "http://localhost:3001"
 	}
 	return "https://mc.calebwash.com"
+}
+func dialServerWithFallback(ctx context.Context, network, address string) (net.Conn, error) {
+	if isDevMode() || network != "tcp" || address != "mc.calebwash.com:443" {
+		return (&net.Dialer{Timeout: 30 * time.Second}).DialContext(ctx, network, address)
+	}
+	dialer := &net.Dialer{Timeout: 3 * time.Second}
+	primaryCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	conn, primaryErr := dialer.DialContext(primaryCtx, network, address)
+	cancel()
+	if primaryErr == nil {
+		return conn, nil
+	}
+	conn, backupErr := dialer.DialContext(ctx, network, "mc.calebwash.com:8443")
+	if backupErr != nil {
+		return nil, primaryErr
+	}
+	return conn, nil
+}
+func init() {
+	base := http.DefaultTransport.(*http.Transport).Clone()
+	base.DialContext = dialServerWithFallback
+	http.DefaultTransport = base
 }
 func serverWebSocketURL() string {
 	parsed, _ := url.Parse(serverHTTPURL())

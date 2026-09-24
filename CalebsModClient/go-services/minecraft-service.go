@@ -58,8 +58,9 @@ func StartMinecraftClient() (bool, error) {
 
 	serverAddress, err := getServerAddress()
 	if err != nil {
-		return false, fmt.Errorf("failed to get server address: %w", err)
+		serverAddress = SERVER_CONFIG_ADDRESS
 	}
+	serverAddress = reachableGameAddress(strings.Split(serverAddress, ":")[0])
 
 	instanceExists, err := checkInstanceExists(prismPath)
 	if err != nil {
@@ -75,6 +76,9 @@ func StartMinecraftClient() (bool, error) {
 
 	if err := syncModsToInstance(filepath.Join(prismPath, "instances", INSTANCE_NAME)); err != nil {
 		return false, fmt.Errorf("failed to sync mods: %w", err)
+	}
+	if err := addServerToServersFile(GameRootPath(filepath.Join(prismPath, "instances", INSTANCE_NAME)), serverAddress); err != nil {
+		return false, fmt.Errorf("failed to set server address: %w", err)
 	}
 
 	if err := launchPrismInstance(prismPath, INSTANCE_NAME, serverAddress); err != nil {
@@ -362,10 +366,13 @@ func fetchSyncData(fromRevision int) (*SyncResponse, error) {
 	return &syncResp, nil
 }
 
-func addServerToServersFile(minecraftPath string) error {
+func addServerToServersFile(minecraftPath string, selectedAddress ...string) error {
 	serversFilePath := filepath.Join(minecraftPath, "servers.dat")
 
 	serverAddress := SERVER_CONFIG_ADDRESS
+	if len(selectedAddress) > 0 {
+		serverAddress = selectedAddress[0]
+	}
 	serverName := SERVER_CONFIG_NAME
 
 	servers, err := readServersFile(serversFilePath)
@@ -380,7 +387,7 @@ func addServerToServersFile(minecraftPath string) error {
 	for i, server := range servers {
 		fmt.Printf("Server %d: IP=%s, Name=%s, Hidden=%v\n", i, server.IP, server.Name, server.Hidden)
 		cleanIP := strings.TrimSuffix(server.IP, ":25565")
-		if cleanIP == serverAddress || server.IP == serverAddress {
+		if cleanIP == SERVER_CONFIG_ADDRESS || server.IP == SERVER_CONFIG_ADDRESS+":"+backupGamePort {
 			serverExists = true
 			fmt.Printf("BEFORE UPDATE: IP=%s, Name=%s, Hidden=%v\n", servers[i].IP, servers[i].Name, servers[i].Hidden)
 			servers[i].Name = serverName

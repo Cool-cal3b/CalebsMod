@@ -189,7 +189,9 @@ main() {
     echo "Checking for updates..."
 
     local release_json latest_version download_url expected_sha
-    release_json=$(curl -fsSL --max-time 30 "$SERVER_URL$VERSION_ENDPOINT")
+    if ! release_json=$(curl -fsSL --connect-timeout 3 --max-time 30 "$SERVER_URL$VERSION_ENDPOINT"); then
+        release_json=$(curl -fsSL --connect-timeout 3 --max-time 30 "https://mc.calebwash.com:8443$VERSION_ENDPOINT")
+    fi
 
     latest_version=$(json_field version "$release_json")
     download_url=$(json_field downloadUrl "$release_json")

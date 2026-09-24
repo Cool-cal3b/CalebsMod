@@ -108,7 +108,7 @@ func serverIsInServersFile(serversFilePath string) bool {
 		return false
 	}
 	for _, s := range servers {
-		if strings.TrimSuffix(s.IP, ":25565") == SERVER_CONFIG_ADDRESS {
+		if strings.TrimSuffix(strings.TrimSuffix(s.IP, ":25565"), ":25566") == SERVER_CONFIG_ADDRESS {
 			return true
 		}
 	}
