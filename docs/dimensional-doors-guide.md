@@ -1,5 +1,7 @@
 # DimensionalDoors guide
 
+Back to the [all-worlds index](../calebs-mod-server/documentation/all-worlds.md).
+
 This server includes **DimensionalDoors 5.4.4**. It creates rifts, doors, pocket dungeons, and the Limbo dimension. A doorway found in the world can lead to a generated dungeon made of connected rooms, including laboratory-style rooms and mazes.
 
 ## Is this a real dimension?
@@ -58,4 +60,3 @@ No dedicated DimensionalDoors boss is confirmed in this installed cache. Monolit
 2. If a rift appears, stabilize it to preserve it or remove it only after it is no longer needed.
 3. Avoid staring at Monoliths in Limbo.
 4. Loot quickly, mark the route, and do not enter a new door without an exit plan.
-

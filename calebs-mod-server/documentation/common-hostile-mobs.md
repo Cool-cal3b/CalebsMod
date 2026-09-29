@@ -152,6 +152,36 @@ All active variants fly. Their configured locations and core combat stats are:
 
 ## Special Mobs (`specialmobs` 4.1.15)
 
+### Drowning Creeper
+
+Also sometimes called a "drowned creeper," this is the water-specialist
+Creeper variant.
+
+| HP | Armor | Speed | Explosion power | XP |
+| --- | --- | --- | --- | --- |
+| 30 (15♥) | 0 | 0.25 | 6 normal, 9 charged, 13.5 supercharged | 7 |
+
+- **Spawn:** the enabled Special Mobs replacer gives Creepers a 33% base chance
+  to become a special variant; the Drowning Creeper's normal selection weight
+  is 15. It also has separate added water spawns, each with weight 1: a 6%
+  successful-attempt chance in warm oceans and rivers, 2% in ocean water more
+  than 17 blocks below sea level, and 0% in other ocean conditions.
+- **Water movement:** it seeks water, switches to water pathfinding while
+  submerged, can breathe underwater, and ignores pushes from flowing fluids.
+  Unlike many Creeper variants, it can still detonate while wet.
+- **Explosion:** its normal blast is already twice a vanilla Creeper's power.
+  When block damage is enabled, the blast also builds an underwater coral shell
+  around the explosion. Each generated coral block has a **25% chance** to be
+  an infested coral block that releases an aquatic silverfish when broken.
+  The explosion is configured to add **2–4 pufferfish** to the area.
+- **Drops:** normal Creeper loot, plus 0–2 cod and 0–1 salmon, with Looting
+  able to add one to either variable drop. A player kill has a 25% chance,
+  increased by 5 percentage points per Looting level, to yield one gold nugget,
+  prismarine shard, or prismarine crystals.
+- **Combat note:** do not let it explode in a base or a confined waterway.
+  Lure it to a clear area, then clear out quickly: the blast is large and may
+  leave silverfish-containing coral and hostile pufferfish behind.
+
 ### Fire Zombie
 
 - **Spawn configuration:** zombies have a 20% base chance to become a special
@@ -165,6 +195,78 @@ All active variants fly. Their configured locations and core combat stats are:
   if it did not receive a bow. The bow's configured range is 12 blocks.
 - **Combat note:** water is a reliable countermeasure in this pack. A bow or
   shield is possible, not guaranteed.
+
+## Keebsz's Battle Towers (`keebszs_battle_towers` 0.6.0)
+
+### Tower Guardian
+
+The normal-world tower boss is the **Tower Guardian**, which may look like a
+Tower Golem because of its custom model. It is from Keebsz's Battle Towers,
+not Twilight Forest. Internally, it is an invisible, fire-resistant Skeleton
+wearing the guardian model.
+
+| HP | Attack attribute | Speed |
+| --- | --- | --- |
+| 250 (125♥) | 5 (2.5♥) | 0.2 |
+
+- **Where to find it:** at the top of a Battle Tower. The active structure set
+  generates eleven tower variants, including stone, cobblestone, sandstone,
+  red sandstone, packed ice, stone-brick, bamboo, and underground towers.
+- **Fight:** damaging it starts the encounter and shows a boss bar to players
+  within 32 blocks. The guardian has permanent Fire Resistance and no weapon
+  or armour drops.
+- **Special attacks:** while engaged, it cycles through a close-range blast,
+  a teleport to one of the tower's marked positions, and a soul-flame ray that
+  calls down small fireballs where it hits. The close blast damages each player
+  within 8 blocks and also summons a downward small fireball over them.
+- **Drops:** its loot table makes 1–4 rolls. A diamond result gives 3–7
+  diamonds; the Ender Pearl alternative has a 50% roll condition.
+- **Tower collapse:** once the guardian is no longer near its tower marker,
+  including after it dies, the tower's collapse sequence begins after 12
+  seconds. It uses repeated radius-10 explosions through roughly 42 seconds,
+  then removes the tower's remaining loot blocks and structure materials.
+- **Combat note:** clear the tower before landing the final blow. Fight at
+  range when possible, keep moving to avoid its marked teleports and fireball
+  attacks, and leave the tower immediately once the collapse sequence begins.
+
+## When Dungeons Arise: Seven Seas (`dungeons_arise_seven_seas` 1.0.2)
+
+### Pirate Junk
+
+The pirate ship is the **Pirate Junk** structure from When Dungeons Arise:
+Seven Seas. It generates only in Overworld ocean biomes. This mod adds the
+ship and its preconfigured spawners, not new creature types.
+
+| Enemy | Pirate Junk spawner templates | Notable configured equipment |
+| --- | ---: | --- |
+| Vindicator | 4 | Golden sword; Sharpness wooden axe with a parrot; or a Fire Aspect flint and steel |
+| Pillager | 1 | Quick Charge crossbow and firework rockets |
+| Illusioner | 1 | Power and Punch bow |
+
+#### Vindicator Pirates
+
+- **Count:** four of the ship's six possible spawner templates summon
+  Vindicators, so these are the main close-range threat.
+- **Variants:** two use a golden sword. Another uses a Sharpness-enchanted
+  wooden axe and has a parrot passenger. The last is visibly on fire and holds
+  a Fire Aspect flint and steel.
+- **Combat note:** clear decks and doorways carefully. The axe variant is the
+  most dangerous melee opponent, while the burning variant is a fire hazard.
+
+#### Pillager Pirate
+
+- **Attack:** this Pillager uses a Quick Charge crossbow and carries firework
+  rockets, so it can sustain ranged pressure from the ship's upper areas.
+- **Combat note:** use the mast, railings, or cabin walls as cover before
+  moving onto an exposed deck.
+
+#### Illusioner Pirate
+
+- **Attack:** this is the rare ranged specialist. Its bow has Power and Punch,
+  and the Illusioner's normal blindness and decoy magic still apply.
+- **Combat note:** break line of sight when it casts, then close in only after
+  locating the real Illusioner. Its bow knockback can push players off the
+  ship.
 
 ## Treasure2 (`treasure2` 3.12.1)
 

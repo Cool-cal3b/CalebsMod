@@ -12,6 +12,15 @@ export interface DockerServerStatus {
   finishedAt?: string;
 }
 
+export interface DockerResourceStats {
+  cpu_usage: number;
+  cpu_percent: number;
+  memory_usage: number;
+  memory_limit: number;
+  network_rx: number;
+  network_tx: number;
+}
+
 @Injectable()
 export class DockerService implements OnModuleInit {
   private docker: Dockerode;
@@ -133,10 +142,16 @@ export class DockerService implements OnModuleInit {
 
       if (!info.State.Running) {
         await container.start();
-        return { status: ServerStatus.STARTED, message: 'Minecraft server started' };
+        return {
+          status: ServerStatus.STARTED,
+          message: 'Minecraft server started',
+        };
       }
 
-      return { status: ServerStatus.ALREADY_RUNNING, message: 'Server is already running' };
+      return {
+        status: ServerStatus.ALREADY_RUNNING,
+        message: 'Server is already running',
+      };
     } catch (error) {
       return { status: ServerStatus.ERROR, message: (error as Error).message };
     }
@@ -209,7 +224,7 @@ export class DockerService implements OnModuleInit {
     return logs.toString();
   }
 
-  async getServerStats() {
+  async getServerStats(): Promise<DockerResourceStats | null> {
     const container = await this.getContainer();
 
     if (!container) {
@@ -224,12 +239,54 @@ export class DockerService implements OnModuleInit {
 
     const stats = await container.stats({ stream: false });
 
+    const cpuDelta =
+      stats.cpu_stats.cpu_usage.total_usage -
+      (stats.precpu_stats.cpu_usage?.total_usage || 0);
+    const systemDelta =
+      (stats.cpu_stats.system_cpu_usage || 0) -
+      (stats.precpu_stats.system_cpu_usage || 0);
+    const cpuCount =
+      stats.cpu_stats.online_cpus ||
+      stats.cpu_stats.cpu_usage.percpu_usage?.length ||
+      1;
+    const cpuPercent =
+      cpuDelta >= 0 && systemDelta > 0
+        ? (cpuDelta / systemDelta) * cpuCount * 100
+        : 0;
+
+    // Docker's raw memory usage includes reclaimable file cache. Removing it
+    // matches the working-set figure shown by `docker stats` and makes the
+    // dashboard a better indicator of memory pressure.
+    const memoryDetails = stats.memory_stats.stats as
+      | Record<string, number>
+      | undefined;
+    const reclaimableCache =
+      memoryDetails?.inactive_file ||
+      memoryDetails?.total_inactive_file ||
+      memoryDetails?.cache ||
+      0;
+    const memoryUsage = Math.max(
+      0,
+      (stats.memory_stats.usage || 0) - reclaimableCache,
+    );
+    const networks = Object.values(stats.networks || {}) as Array<{
+      rx_bytes: number;
+      tx_bytes: number;
+    }>;
+
     return {
       cpu_usage: stats.cpu_stats.cpu_usage.total_usage,
-      memory_usage: stats.memory_stats.usage,
-      memory_limit: stats.memory_stats.limit,
-      network_rx: stats.networks?.eth0?.rx_bytes || 0,
-      network_tx: stats.networks?.eth0?.tx_bytes || 0,
+      cpu_percent: cpuPercent,
+      memory_usage: memoryUsage,
+      memory_limit: stats.memory_stats.limit || 0,
+      network_rx: networks.reduce(
+        (total, network) => total + network.rx_bytes,
+        0,
+      ),
+      network_tx: networks.reduce(
+        (total, network) => total + network.tx_bytes,
+        0,
+      ),
     };
   }
 }

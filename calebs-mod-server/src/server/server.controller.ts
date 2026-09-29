@@ -1,4 +1,12 @@
-import { Controller, Get, Post, Patch, Body, Query, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Patch,
+  Body,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { ServerService } from './server.service';
 import { SendCommandDto, UpdateServerSettingsDto } from './dto/server.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -6,6 +14,14 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 @Controller('api/server')
 export class ServerController {
   constructor(private readonly serverService: ServerService) {}
+
+  // Intentionally does no Docker, RCON, filesystem, or database work. This is
+  // safe for a low-frequency external probe and measures the public HTTPS path
+  // without adding work to the Minecraft server.
+  @Get('health')
+  health() {
+    return { ok: true };
+  }
 
   @Get('status')
   async getStatus() {

@@ -79,11 +79,12 @@ export class ServerService {
   }
 
   private async syncModpackFiles() {
-    const minecraftDataPath = process.env.MINECRAFT_DATA_PATH || './minecraft-data';
+    const minecraftDataPath =
+      process.env.MINECRAFT_DATA_PATH || './minecraft-data';
     const absoluteMinecraftPath = path.resolve(minecraftDataPath);
 
     const manifest = this.modpackService.getServerManifest();
-    
+
     if (manifest.length === 0) {
       console.log('No files to sync to Minecraft server');
       return;
@@ -93,9 +94,11 @@ export class ServerService {
 
     for (const file of manifest) {
       const sourceFilePath = this.modpackService.getPackFile(file.sha256);
-      
+
       if (!sourceFilePath || !fs.existsSync(sourceFilePath)) {
-        console.warn(`Source file not found for ${file.fileName} (${file.sha256})`);
+        console.warn(
+          `Source file not found for ${file.fileName} (${file.sha256})`,
+        );
         continue;
       }
 
@@ -115,7 +118,7 @@ export class ServerService {
           console.log(`Updating ${file.fileName} (hash mismatch)`);
           fs.copyFileSync(sourceFilePath, targetPath);
         }
-      } 
+      }
     }
 
     this.pruneFilesNotInManifest(manifest, absoluteMinecraftPath);
@@ -155,7 +158,7 @@ export class ServerService {
 
   async getIpAndPort() {
     const container = await this.dockerService.getContainer();
-    
+
     let publicIp: string;
     try {
       const response = await fetch('https://api.ipify.org?format=json');
@@ -166,11 +169,13 @@ export class ServerService {
       throw new Error('Unable to retrieve public IP address');
     }
 
-    const port = container?.NetworkSettings?.Ports?.['25565/tcp']?.[0]?.HostPort || '25565';
-    
+    const port =
+      container?.NetworkSettings?.Ports?.['25565/tcp']?.[0]?.HostPort ||
+      '25565';
+
     const portString = port !== '25565' ? `:${port}` : '';
     const serverAddress = `${CLOUDFLARE_SUBDOMAIN}.${CLOUDFLARE_DOMAIN}${portString}`;
-    
+
     return {
       ip: publicIp,
       port: port,
@@ -181,7 +186,7 @@ export class ServerService {
   async updateDns() {
     console.log('Updating DNS');
     const { ip } = await this.getIpAndPort();
-    
+
     const apiToken = process.env.CLOUDFLARE_API_TOKEN;
     const zoneId = process.env.CLOUDFLARE_ZONE_ID;
 
@@ -196,26 +201,28 @@ export class ServerService {
       const listResponse = await fetch(listUrl, {
         method: 'GET',
         headers: {
-          'Authorization': `Bearer ${apiToken}`,
+          Authorization: `Bearer ${apiToken}`,
           'Content-Type': 'application/json',
         },
       });
 
       if (!listResponse.ok) {
         const errorText = await listResponse.text();
-        throw new Error(`Cloudflare API error (list): ${listResponse.status} - ${errorText}`);
+        throw new Error(
+          `Cloudflare API error (list): ${listResponse.status} - ${errorText}`,
+        );
       }
 
       const listData = await listResponse.json();
-      
+
       if (listData.result && listData.result.length > 0) {
         const recordId = listData.result[0].id;
         const updateUrl = `https://api.cloudflare.com/client/v4/zones/${zoneId}/dns_records/${recordId}`;
-        
+
         const updateResponse = await fetch(updateUrl, {
           method: 'PUT',
           headers: {
-            'Authorization': `Bearer ${apiToken}`,
+            Authorization: `Bearer ${apiToken}`,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
@@ -229,7 +236,9 @@ export class ServerService {
 
         if (!updateResponse.ok) {
           const errorText = await updateResponse.text();
-          throw new Error(`Cloudflare API error (update): ${updateResponse.status} - ${errorText}`);
+          throw new Error(
+            `Cloudflare API error (update): ${updateResponse.status} - ${errorText}`,
+          );
         }
 
         return {
@@ -240,11 +249,11 @@ export class ServerService {
         };
       } else {
         const createUrl = `https://api.cloudflare.com/client/v4/zones/${zoneId}/dns_records`;
-        
+
         const createResponse = await fetch(createUrl, {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${apiToken}`,
+            Authorization: `Bearer ${apiToken}`,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
@@ -258,7 +267,9 @@ export class ServerService {
 
         if (!createResponse.ok) {
           const errorText = await createResponse.text();
-          throw new Error(`Cloudflare API error (create): ${createResponse.status} - ${errorText}`);
+          throw new Error(
+            `Cloudflare API error (create): ${createResponse.status} - ${errorText}`,
+          );
         }
 
         return {
@@ -317,7 +328,9 @@ export class ServerService {
     const fileName = `CalebsModClient-${version}${CLIENT_PLATFORMS[resolvedPlatform].suffix}.zip`;
     const s3Key = `client-releases/${fileName}`;
 
-    console.log(`S3_REGION: ${this.S3_REGION} S3_BUCKET: ${this.S3_BUCKET} s3Key: ${s3Key}`);
+    console.log(
+      `S3_REGION: ${this.S3_REGION} S3_BUCKET: ${this.S3_BUCKET} s3Key: ${s3Key}`,
+    );
     const command = new GetObjectCommand({
       Bucket: this.S3_BUCKET,
       Key: s3Key,
@@ -368,7 +381,7 @@ export class ServerService {
 
   async getStatus() {
     const dockerStatus = await this.dockerService.getServerStatus();
-    
+
     let players: { online: number; max: number; players: string[] } = {
       online: 0,
       max: 20,
@@ -414,6 +427,7 @@ export class ServerService {
       uptime: status.startedAt,
       stats: {
         cpu: stats?.cpu_usage || 0,
+        cpuPercentage: stats?.cpu_percent || 0,
         memory: {
           used: stats?.memory_usage || 0,
           limit: stats?.memory_limit || 0,
@@ -427,6 +441,34 @@ export class ServerService {
         },
       },
     };
+  }
+
+  async getResourceStats() {
+    return await this.dockerService.getServerStats();
+  }
+
+  async getTickHealth(): Promise<
+    { ticksPerSecond: number; meanTickTimeMs: number } | undefined
+  > {
+    if (!this.rconService.isConnected()) return undefined;
+
+    try {
+      const response = await this.rconService.send('forge tps');
+      const plainText = response.replace(/\u00a7[0-9A-FK-OR]/gi, '');
+      const overall = plainText.match(
+        /Overall\s*:.*?Mean tick time:\s*([\d.]+)\s*ms.*?Mean TPS:\s*([\d.]+)/is,
+      );
+      if (!overall) return undefined;
+
+      const meanTickTimeMs = Number.parseFloat(overall[1]);
+      const ticksPerSecond = Number.parseFloat(overall[2]);
+      if (!Number.isFinite(meanTickTimeMs) || !Number.isFinite(ticksPerSecond))
+        return undefined;
+
+      return { ticksPerSecond, meanTickTimeMs };
+    } catch {
+      return undefined;
+    }
   }
 
   async getLogs(tail = 100) {
@@ -519,12 +561,24 @@ export class ServerService {
     return { online, max, players };
   }
 
-  private pruneFilesNotInManifest(manifest: PackFileDto[], absoluteMinecraftPath: string) {
+  private pruneFilesNotInManifest(
+    manifest: PackFileDto[],
+    absoluteMinecraftPath: string,
+  ) {
     const expectedPaths = new Set(
-      manifest.map(f => path.normalize(path.join(absoluteMinecraftPath, f.relativePath)))
+      manifest.map((f) =>
+        path.normalize(path.join(absoluteMinecraftPath, f.relativePath)),
+      ),
     );
 
-    const dirsToPrune = ['mods', 'config', 'thingpacks', 'defaultconfigs', 'resourcepacks', 'shaderpacks'];
+    const dirsToPrune = [
+      'mods',
+      'config',
+      'thingpacks',
+      'defaultconfigs',
+      'resourcepacks',
+      'shaderpacks',
+    ];
     for (const dirName of dirsToPrune) {
       const dirPath = path.join(absoluteMinecraftPath, dirName);
       if (!fs.existsSync(dirPath)) continue;
@@ -532,7 +586,11 @@ export class ServerService {
     }
   }
 
-  private pruneDirRecursive(dirPath: string, minecraftRoot: string, expectedPaths: Set<string>) {
+  private pruneDirRecursive(
+    dirPath: string,
+    minecraftRoot: string,
+    expectedPaths: Set<string>,
+  ) {
     for (const name of fs.readdirSync(dirPath)) {
       const fullPath = path.join(dirPath, name);
       const normalizedPath = path.normalize(fullPath);
@@ -544,7 +602,9 @@ export class ServerService {
           fs.rmdirSync(fullPath);
         }
       } else if (!expectedPaths.has(normalizedPath)) {
-        console.log(`Pruning (not in server manifest): ${path.relative(minecraftRoot, fullPath)}`);
+        console.log(
+          `Pruning (not in server manifest): ${path.relative(minecraftRoot, fullPath)}`,
+        );
         fs.rmSync(fullPath, { force: true });
       }
     }

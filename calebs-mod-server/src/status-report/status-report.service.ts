@@ -30,6 +30,24 @@ export interface CalebsModStatusReport {
     joinCount: number;
   }>;
   clientVersions: { windows: string; mac: string };
+  health: {
+    statusCollectionMs: number;
+    previousReportRoundTripMs?: number;
+    minecraftPerformance?: {
+      ticksPerSecond: number;
+      meanTickTimeMs: number;
+    };
+    resourceUsage?: {
+      cpuPercent: number;
+      memoryUsedBytes: number;
+      memoryLimitBytes: number;
+      memoryPercent: number;
+      networkRxBytes: number;
+      networkTxBytes: number;
+      networkRxBytesPerSecond?: number;
+      networkTxBytesPerSecond?: number;
+    };
+  };
 }
 
 @Injectable()
@@ -41,6 +59,10 @@ export class StatusReportService implements OnModuleInit, OnModuleDestroy {
   private readonly secret: string;
   private timer: NodeJS.Timeout | null = null;
   private sending = false;
+  private previousReportRoundTripMs: number | undefined;
+  private previousNetworkSample:
+    | { measuredAtMs: number; receivedBytes: number; sentBytes: number }
+    | undefined;
 
   constructor(
     config: ConfigService,
@@ -69,9 +91,44 @@ export class StatusReportService implements OnModuleInit, OnModuleDestroy {
   }
 
   async buildReport(): Promise<CalebsModStatusReport> {
-    const status = await this.serverService.getStatus();
+    const collectionStartedAt = performance.now();
+    const [status, resourceStats] = await Promise.all([
+      this.serverService.getStatus(),
+      this.serverService.getResourceStats(),
+    ]);
+    const minecraftPerformance =
+      status.dockerStatus.running && status.rconConnected
+        ? await this.serverService.getTickHealth()
+        : undefined;
+    const statusCollectionMs = performance.now() - collectionStartedAt;
     const docker = status.dockerStatus;
     const players = this.playerActivityService.getAllPlayers();
+    const measuredAtMs = Date.now();
+    let networkRates:
+      | { receivedBytesPerSecond: number; sentBytesPerSecond: number }
+      | undefined;
+
+    if (resourceStats && this.previousNetworkSample) {
+      const elapsedSeconds =
+        (measuredAtMs - this.previousNetworkSample.measuredAtMs) / 1000;
+      const receivedDelta =
+        resourceStats.network_rx - this.previousNetworkSample.receivedBytes;
+      const sentDelta =
+        resourceStats.network_tx - this.previousNetworkSample.sentBytes;
+      if (elapsedSeconds > 0 && receivedDelta >= 0 && sentDelta >= 0) {
+        networkRates = {
+          receivedBytesPerSecond: receivedDelta / elapsedSeconds,
+          sentBytesPerSecond: sentDelta / elapsedSeconds,
+        };
+      }
+    }
+    this.previousNetworkSample = resourceStats
+      ? {
+          measuredAtMs,
+          receivedBytes: resourceStats.network_rx,
+          sentBytes: resourceStats.network_tx,
+        }
+      : undefined;
 
     return {
       schemaVersion: 1,
@@ -106,17 +163,50 @@ export class StatusReportService implements OnModuleInit, OnModuleDestroy {
         windows: await this.readClientVersion('windows'),
         mac: await this.readClientVersion('mac'),
       },
+      health: {
+        statusCollectionMs,
+        ...(this.previousReportRoundTripMs !== undefined
+          ? { previousReportRoundTripMs: this.previousReportRoundTripMs }
+          : {}),
+        ...(minecraftPerformance ? { minecraftPerformance } : {}),
+        ...(resourceStats
+          ? {
+              resourceUsage: {
+                cpuPercent: resourceStats.cpu_percent,
+                memoryUsedBytes: resourceStats.memory_usage,
+                memoryLimitBytes: resourceStats.memory_limit,
+                memoryPercent:
+                  resourceStats.memory_limit > 0
+                    ? (resourceStats.memory_usage /
+                        resourceStats.memory_limit) *
+                      100
+                    : 0,
+                networkRxBytes: resourceStats.network_rx,
+                networkTxBytes: resourceStats.network_tx,
+                ...(networkRates
+                  ? {
+                      networkRxBytesPerSecond:
+                        networkRates.receivedBytesPerSecond,
+                      networkTxBytesPerSecond: networkRates.sentBytesPerSecond,
+                    }
+                  : {}),
+              },
+            }
+          : {}),
+      },
     };
   }
 
   async sendNow(): Promise<void> {
     if (this.sending || !this.reportUrl || !this.secret) return;
     this.sending = true;
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    let timeout: NodeJS.Timeout | undefined;
 
     try {
       const report = await this.buildReport();
+      const controller = new AbortController();
+      timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+      const requestStartedAt = performance.now();
       const response = await fetch(this.reportUrl, {
         method: 'POST',
         headers: {
@@ -128,11 +218,12 @@ export class StatusReportService implements OnModuleInit, OnModuleDestroy {
       });
       if (!response.ok)
         throw new Error(`CalebsSuperSite returned HTTP ${response.status}`);
+      this.previousReportRoundTripMs = performance.now() - requestStartedAt;
     } catch (error) {
       const message = error instanceof Error ? error.message : 'unknown error';
       console.error(`CalebsSuperSite status report failed: ${message}`);
     } finally {
-      clearTimeout(timeout);
+      if (timeout) clearTimeout(timeout);
       this.sending = false;
     }
   }

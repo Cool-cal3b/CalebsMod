@@ -1,8 +1,11 @@
 # The Stellar Dimension (Aerial Hell)
 
+Back to the [all-worlds index](all-worlds.md).
+
 What you'll find once you're actually through a Stellar Portal. For how to
-build and light the portal itself, see the Stellar Portal guide. All of this
-comes straight out of `aerialhell-0.7.0.1_forge1.20.1.jar`.
+build and light the portal itself, see the [Stellar Portal guide](stellar-portal.md).
+All of this comes straight out of
+`aerialhell-0.7.0.1_forge1.20.1.jar`.
 
 Aerial Hell is a floating sky world, no ceiling, lots of open air between
 islands. It has its own stone (Stellar Stone) and its own ore list, none of

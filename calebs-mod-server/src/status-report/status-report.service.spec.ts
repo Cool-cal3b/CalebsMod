@@ -6,6 +6,8 @@ import { StatusReportService } from './status-report.service';
 describe('StatusReportService', () => {
   const server = {
     getStatus: jest.fn(),
+    getResourceStats: jest.fn(),
+    getTickHealth: jest.fn(),
     getLatestClientVersion: jest.fn(),
   };
   const activity = { getAllPlayers: jest.fn() };
@@ -26,6 +28,18 @@ describe('StatusReportService', () => {
     server.getLatestClientVersion.mockImplementation((platform: string) =>
       Promise.resolve(platform === 'windows' ? '1.23' : '1.21'),
     );
+    server.getResourceStats.mockResolvedValue({
+      cpu_usage: 100,
+      cpu_percent: 12.5,
+      memory_usage: 2_000,
+      memory_limit: 8_000,
+      network_rx: 10_000,
+      network_tx: 5_000,
+    });
+    server.getTickHealth.mockResolvedValue({
+      ticksPerSecond: 20,
+      meanTickTimeMs: 8.4,
+    });
     activity.getAllPlayers.mockReturnValue([
       {
         username: 'Caleb',
@@ -66,6 +80,16 @@ describe('StatusReportService', () => {
       joinCount: 4,
     });
     expect(report.clientVersions).toEqual({ windows: '1.23', mac: '1.21' });
+    expect(report.health.resourceUsage).toMatchObject({
+      cpuPercent: 12.5,
+      memoryPercent: 25,
+      networkRxBytes: 10_000,
+    });
+    expect(report.health.statusCollectionMs).toBeGreaterThanOrEqual(0);
+    expect(report.health.minecraftPerformance).toEqual({
+      ticksPerSecond: 20,
+      meanTickTimeMs: 8.4,
+    });
   });
 
   it('sends the secret in a header and never overlaps reports', async () => {
