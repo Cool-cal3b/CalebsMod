@@ -1,6 +1,6 @@
 # DimensionalDoors guide
 
-Back to the [all-worlds index](../calebs-mod-server/documentation/all-worlds.md).
+Back to the [all-worlds index](all-worlds.md).
 
 This server includes **DimensionalDoors 5.4.4**. It creates rifts, doors, pocket dungeons, and the Limbo dimension. A doorway found in the world can lead to a generated dungeon made of connected rooms, including laboratory-style rooms and mazes.
 

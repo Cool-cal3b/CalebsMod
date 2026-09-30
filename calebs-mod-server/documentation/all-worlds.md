@@ -23,10 +23,10 @@ many isolated pocket rooms rather than four continuous open worlds.
 | Twilight Forest | Modded open world | Boss-led adventure progression through large landmarks | [Twilight Forest](twilight-forest-dimension.md) |
 | Wyvern Lair | Modded open world | Floating islands, wyvern biomes, nests, ores, and tameable wyverns | [Wyvern Lair](wyvern-lair-dimension.md) |
 | Cave Stuff: Testing | Modded cave world | Glowworm and Guano cave ecosystems with their own creatures and materials | [Cave Stuff dimension](cave-stuff-dimension.md) |
-| Dungeon Pockets | DimensionalDoors space | Generated pocket dungeons and connected rooms | [DimensionalDoors guide](../../docs/dimensional-doors-guide.md) |
-| Personal Pockets | DimensionalDoors space | Isolated personal pocket rooms | [DimensionalDoors guide](../../docs/dimensional-doors-guide.md) |
-| Public Pockets | DimensionalDoors space | Shared pocket rooms | [DimensionalDoors guide](../../docs/dimensional-doors-guide.md) |
-| Limbo | DimensionalDoors space | Hostile failure and escape dimension | [DimensionalDoors guide](../../docs/dimensional-doors-guide.md) |
+| Dungeon Pockets | DimensionalDoors space | Generated pocket dungeons and connected rooms | [DimensionalDoors guide](dimensional-doors-guide.md) |
+| Personal Pockets | DimensionalDoors space | Isolated personal pocket rooms | [DimensionalDoors guide](dimensional-doors-guide.md) |
+| Public Pockets | DimensionalDoors space | Shared pocket rooms | [DimensionalDoors guide](dimensional-doors-guide.md) |
+| Limbo | DimensionalDoors space | Hostile failure and escape dimension | [DimensionalDoors guide](dimensional-doors-guide.md) |
 
 ## What changes the Nether and End?
 
@@ -44,4 +44,3 @@ geodes, fishing, and smaller structures. See the [End guide](end.md).
 Terrain features normally appear only in chunks generated after the relevant
 mod was installed. If a structure or biome seems absent near familiar areas,
 travel into unexplored territory before assuming it is disabled.
-

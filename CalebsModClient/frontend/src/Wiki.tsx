@@ -11,6 +11,7 @@ import { go_services } from '../wailsjs/go/models';
 import { BookIcon } from './components/Icons';
 import TopBar from './components/TopBar';
 import WikiTable from './components/WikiTable';
+import { resolveWikiLink, type WikiLink } from './wiki-links';
 
 interface HeadingLink {
 	id: string;
@@ -40,6 +41,7 @@ async function loadDocumentation(id: string): Promise<go_services.DocumentationD
 
 export default function Wiki() {
 	const articleRef = useRef<HTMLElement>(null);
+	const pendingLink = useRef<WikiLink | null>(null);
 	const [documents, setDocuments] = useState<go_services.DocumentationSummary[]>([]);
 	const [selectedId, setSelectedId] = useState('');
 	const [document, setDocument] = useState<go_services.DocumentationDocument | null>(null);
@@ -113,6 +115,11 @@ export default function Wiki() {
 		setHeadings(nextHeadings);
 		setActiveHeading(nextHeadings[0]?.id ?? '');
 		window.scrollTo({ top: 0 });
+		if (pendingLink.current?.id === document.id) {
+			const fragment = pendingLink.current.fragment;
+			pendingLink.current = null;
+			if (fragment) article.querySelector<HTMLElement>(`[id="${CSS.escape(fragment)}"]`)?.scrollIntoView();
+		}
 
 		const updateActiveHeading = () => {
 			let active = nextHeadings[0]?.id ?? '';
@@ -130,6 +137,19 @@ export default function Wiki() {
 	const goToHeading = (id: string) => {
 		globalThis.document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' });
 		setActiveHeading(id);
+	};
+
+	const openWikiLink = (href: string): boolean => {
+		if (!document) return false;
+		const target = resolveWikiLink(href, document.id, new Set(documents.map((item) => item.id)));
+		if (!target) return false;
+		if (target.id === document.id) {
+			if (target.fragment) goToHeading(target.fragment);
+		} else {
+			pendingLink.current = target;
+			setSelectedId(target.id);
+		}
+		return true;
 	};
 
 	const retry = () => {
@@ -196,7 +216,18 @@ export default function Wiki() {
 							<ReactMarkdown
 								remarkPlugins={[remarkGfm]}
 								rehypePlugins={[rehypeSlug]}
-								components={{ table: WikiTable }}
+								components={{
+									table: WikiTable,
+									a: ({ href, ...props }) => (
+										<a
+											{...props}
+											href={href}
+											onClick={(event) => {
+												if (href && openWikiLink(href)) event.preventDefault();
+											}}
+										/>
+									),
+								}}
 							>
 								{document.markdown}
 							</ReactMarkdown>

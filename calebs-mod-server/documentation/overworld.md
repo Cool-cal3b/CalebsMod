@@ -30,7 +30,6 @@ For known enemy behavior, see the [common hostile mobs guide](common-hostile-mob
   Staff.
 - [Cave Stuff](cave-stuff-dimension.md) includes a Testing Portal Igniter for
   its cave dimension.
-- [DimensionalDoors](../../docs/dimensional-doors-guide.md) entrances lead to
+- [DimensionalDoors](dimensional-doors-guide.md) entrances lead to
   pockets, dungeons, and potentially Limbo.
 - Vanilla portals still lead to the [Nether](nether.md) and [End](end.md).
-
