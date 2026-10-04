@@ -17,6 +17,7 @@ export class WorldSafetyInterceptor implements NestInterceptor {
     const url = req.path as string;
     if (
       ['GET', 'HEAD', 'OPTIONS'].includes(req.method) ||
+      (req.method === 'POST' && url === '/api/modpack/batch-zip') ||
       url.startsWith('/api/worlds')
     )
       return next.handle();
