@@ -3,6 +3,8 @@ import { ConfigService } from '@nestjs/config';
 import Dockerode from 'dockerode';
 import * as path from 'path';
 import * as fs from 'fs';
+import { WorldStore } from '../worlds/world-store';
+import type { WorldRecord } from '../worlds/world-store';
 
 export interface DockerServerStatus {
   exists: boolean;
@@ -26,7 +28,10 @@ export class DockerService implements OnModuleInit {
   private docker: Dockerode;
   private containerName: string;
 
-  constructor(private configService: ConfigService) {
+  constructor(
+    private configService: ConfigService,
+    private worlds: WorldStore,
+  ) {
     this.docker = new Dockerode();
     this.containerName =
       this.configService.get<string>('MINECRAFT_CONTAINER_NAME') ||
@@ -44,12 +49,14 @@ export class DockerService implements OnModuleInit {
     }
   }
 
-  async getContainer(): Promise<Dockerode.Container | null> {
+  async getContainer(world?: WorldRecord): Promise<Dockerode.Container | null> {
+    const name =
+      world?.containerName ||
+      this.worlds.active()?.containerName ||
+      this.containerName;
     try {
       const containers = await this.docker.listContainers({ all: true });
-      const container = containers.find((c) =>
-        c.Names.includes(`/${this.containerName}`),
-      );
+      const container = containers.find((c) => c.Names.includes(`/${name}`));
 
       if (container) {
         return this.docker.getContainer(container.Id);
@@ -57,17 +64,19 @@ export class DockerService implements OnModuleInit {
 
       return null;
     } catch (error) {
-      console.error('Error getting container:', error);
-      return null;
+      throw error;
     }
   }
 
-  async createContainer(): Dockerode.Container {
+  async createContainer(world?: WorldRecord): Promise<Dockerode.Container> {
+    world ||= this.worlds.active();
     const image =
+      world?.image ||
       this.configService.get<string>('MINECRAFT_DOCKER_IMAGE') ||
       'itzg/minecraft-server:latest';
     const dataPath = path.resolve(
-      this.configService.get<string>('MINECRAFT_DATA_PATH') ||
+      world?.dataPath ||
+        this.configService.get<string>('MINECRAFT_DATA_PATH') ||
         './minecraft-data',
     );
     const serverPort =
@@ -75,10 +84,13 @@ export class DockerService implements OnModuleInit {
     const rconPort = this.configService.get<number>('RCON_PORT') || 25575;
     const memory = this.configService.get<string>('MINECRAFT_MEMORY') || '4G';
     const minecraftVersion =
-      this.configService.get<string>('MINECRAFT_VERSION') || '1.20.1';
+      world?.minecraftVersion ||
+      this.configService.get<string>('MINECRAFT_VERSION') ||
+      '1.20.1';
     const minecraftType =
       this.configService.get<string>('MINECRAFT_TYPE') || 'FORGE';
-    const forgeVersion = this.configService.get<string>('FORGE_VERSION');
+    const forgeVersion =
+      world?.forgeVersion || this.configService.get<string>('FORGE_VERSION');
     const levelType = this.configService.get<string>('LEVEL_TYPE');
     // itzg's variable is ENABLE_WHITELIST; 'WHITE_LIST' was silently ignored,
     // which left white-list=false and the access/approve flow unenforced.
@@ -87,15 +99,20 @@ export class DockerService implements OnModuleInit {
     const rconPassword =
       this.configService.get<string>('RCON_PASSWORD') || 'minecraft';
 
-    try {
-      await this.docker.pull(image);
-    } catch (error) {
-      console.error('Error pulling image:', error);
+    // Managed worlds use the adopted image ID already present on this host.
+    // Never silently replace it by pulling a mutable latest tag.
+    if (!world) {
+      const stream = await this.docker.pull(image);
+      await new Promise<void>((resolve, reject) =>
+        this.docker.modem.followProgress(stream, (error) =>
+          error ? reject(error) : resolve(),
+        ),
+      );
     }
 
     const container = await this.docker.createContainer({
       Image: image,
-      name: this.containerName,
+      name: world?.containerName || this.containerName,
       Env: [
         'EULA=TRUE',
         `MEMORY=${memory}`,
@@ -127,6 +144,15 @@ export class DockerService implements OnModuleInit {
     });
 
     return container;
+  }
+
+  async assertNoOtherRunning(world: WorldRecord) {
+    for (const candidate of this.worlds.list()) {
+      if (candidate.id === world.id) continue;
+      const container = await this.getContainer(candidate);
+      if (container && (await container.inspect()).State.Running)
+        throw new Error('Another world is still running');
+    }
   }
 
   async startServer(): Promise<{ status: ServerStatus; message: string }> {

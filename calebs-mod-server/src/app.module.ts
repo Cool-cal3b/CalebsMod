@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { WorldModule } from './worlds/world.module';
 import { ConfigModule } from '@nestjs/config';
 import { DatabaseModule } from './database/database.module';
 import { AuthModule } from './auth/auth.module';
@@ -20,6 +21,7 @@ import { NotificationsModule } from './notifications/notifications.module';
       envFilePath: '.env',
     }),
     DatabaseModule,
+    WorldModule,
     AuthModule,
     ModpackModule,
     AccessModule,

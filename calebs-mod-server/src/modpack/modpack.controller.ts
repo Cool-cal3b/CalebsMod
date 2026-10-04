@@ -17,7 +17,11 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
-import { ModpackService, SHA256_PATTERN, MAX_BATCH_FILES } from './modpack.service';
+import {
+  ModpackService,
+  SHA256_PATTERN,
+  MAX_BATCH_FILES,
+} from './modpack.service';
 import { AddModDto, CreatePackDto, UpdatePackDto } from './dto/pack.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { diskStorage } from 'multer';
@@ -76,12 +80,18 @@ export class ModpackController {
   }
 
   @Get('sync/:fromRevision')
-  async syncFromRevision(@Param('fromRevision') fromRevision: string, @Res() res: Response) {
+  async syncFromRevision(
+    @Param('fromRevision') fromRevision: string,
+    @Res() res: Response,
+  ) {
     const fromRevisionId = parseInt(fromRevision, 10);
     const syncData = await this.modpackService.getSyncData(fromRevisionId);
 
     if (syncData.upToDate) {
-      return res.json({ upToDate: true, latestRevision: syncData.latestRevision });
+      return res.json({
+        upToDate: true,
+        latestRevision: syncData.latestRevision,
+      });
     }
 
     return res.json({
@@ -96,7 +106,16 @@ export class ModpackController {
   }
 
   @Post('batch-zip')
-  async batchZip(@Body() body: { sha256s?: string[] }, @Res() res: Response) {
+  async batchZip(
+    @Body()
+    body: {
+      sha256s?: string[];
+      worldId?: string;
+      revision?: number;
+      generation?: string;
+    },
+    @Res() res: Response,
+  ) {
     const sha256s = Array.isArray(body?.sha256s) ? body.sha256s : null;
 
     if (!sha256s || sha256s.length === 0) {
@@ -117,7 +136,7 @@ export class ModpackController {
       }
     }
 
-    const zipBuffer = await this.modpackService.createBatchZip(sha256s);
+    const zipBuffer = await this.modpackService.createBatchZip(sha256s, body);
 
     res.set({
       'Content-Type': 'application/zip',
@@ -128,13 +147,18 @@ export class ModpackController {
   }
 
   @Get('sync-zip/:fromRevision')
-  async syncZip(@Param('fromRevision') fromRevision: string, @Res() res: Response) {
+  async syncZip(
+    @Param('fromRevision') fromRevision: string,
+    @Res() res: Response,
+  ) {
     const fromRevisionId = parseInt(fromRevision, 10);
     const syncData = await this.modpackService.getSyncData(fromRevisionId);
 
     if (syncData.upToDate) return res.status(204).end();
 
-    const zipBuffer = await this.modpackService.createSyncZip(syncData.filesToAdd);
+    const zipBuffer = await this.modpackService.createSyncZip(
+      syncData.filesToAdd,
+    );
 
     res.set({
       'Content-Type': 'application/zip',
@@ -170,7 +194,10 @@ export class ModpackController {
     if (typeof body?.paused !== 'boolean') {
       throw new BadRequestException('paused must be a boolean');
     }
-    if (body.resetHistory !== undefined && typeof body.resetHistory !== 'boolean') {
+    if (
+      body.resetHistory !== undefined &&
+      typeof body.resetHistory !== 'boolean'
+    ) {
       throw new BadRequestException('resetHistory must be a boolean');
     }
     return this.modpackService.setRevisionTrackingPaused(
@@ -198,7 +225,11 @@ export class ModpackController {
     @Param('sha256') sha256: string,
     @Body() body: { serverOnly: boolean; clientOnly: boolean },
   ) {
-    this.modpackService.updateFileFlags(sha256, body.serverOnly, body.clientOnly);
+    this.modpackService.updateFileFlags(
+      sha256,
+      body.serverOnly,
+      body.clientOnly,
+    );
     return { success: true };
   }
 

@@ -861,6 +861,20 @@
     font-weight: 600;
 }
 
+.worlds { display: flex; flex-direction: column; gap: 18px; }
+.worlds .card__body, .world-form { display: flex; flex-direction: column; gap: 14px; }
+.world-toolbar { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; }
+.world-toolbar label, .world-form label, .world-settings label, .worlds .card__body > label { display: flex; flex-direction: column; gap: 6px; }
+.world-toolbar label:has(input[type="checkbox"]) { flex-direction: row; align-items: center; }
+.worlds input:not([type="checkbox"]), .worlds select, .world-form input { padding: 9px 12px; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: var(--r-md); }
+.world-settings { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 18px; }
+.world-settings small { color: var(--ink-2); }
+.world-file-list { max-height: 380px; overflow-y: auto; }
+.world-file { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 9px 0; border-bottom: 1px solid var(--line); }
+.world-file > span { flex: 1; min-width: 170px; overflow-wrap: anywhere; font-size: 0.8125rem; }
+.world-backup { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.world-operation { display: flex; flex-direction: column; gap: 8px; padding: 16px; }
+
 .page-actions {
     display: flex;
     justify-content: flex-end;

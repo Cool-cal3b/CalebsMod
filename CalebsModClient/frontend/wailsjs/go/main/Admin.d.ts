@@ -12,6 +12,8 @@ export function DeleteAllFiles():Promise<void>;
 
 export function DeleteFile(arg1:string):Promise<void>;
 
+export function DownloadWorldBackup(arg1:string):Promise<void>;
+
 export function GetAllFiles(arg1:string):Promise<Array<go_services.PackFileDto>>;
 
 export function GetManifest():Promise<Array<go_services.PackFileDto>>;
@@ -30,6 +32,8 @@ export function RestartServer():Promise<go_services.MinecraftServerResponse>;
 
 export function SelectAndUploadModpackZip():Promise<go_services.ModpackUploadResponse>;
 
+export function SelectWorldZIP(arg1:string,arg2:string):Promise<string>;
+
 export function SetAdminKey(arg1:string):Promise<void>;
 
 export function StartServer():Promise<go_services.MinecraftServerResponse>;
@@ -43,3 +47,5 @@ export function UpdateFileFlags(arg1:string,arg2:boolean,arg3:boolean):Promise<v
 export function UpdateServerSettings(arg1:Record<string, string>):Promise<go_services.ServerSettingsResponse>;
 
 export function UploadModpackZip(arg1:Array<number>,arg2:string):Promise<go_services.ModpackUploadResponse>;
+
+export function WorldRequest(arg1:string,arg2:string,arg3:string):Promise<string>;

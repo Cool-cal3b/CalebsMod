@@ -144,13 +144,19 @@ func batchFiles(files []SyncFile) [][]SyncFile {
 	return batches
 }
 
-func downloadBatch(batch []SyncFile) (string, error) {
+func downloadBatch(batch []SyncFile, world ...*ActiveWorld) (string, error) {
 	hashes := make([]string, 0, len(batch))
 	for _, f := range batch {
 		hashes = append(hashes, f.Sha256)
 	}
 
-	payload, err := json.Marshal(map[string][]string{"sha256s": hashes})
+	request := map[string]interface{}{"sha256s": hashes}
+	if len(world) > 0 && world[0] != nil {
+		request["worldId"] = world[0].ID
+		request["revision"] = world[0].Revision
+		request["generation"] = world[0].Generation
+	}
+	payload, err := json.Marshal(request)
 	if err != nil {
 		return "", err
 	}
@@ -339,6 +345,17 @@ func SyncFilesVerified(root string, files []SyncFile, mode verifyMode) error {
 // sync endpoint only describes a delta, so this is what an up-to-date install
 // gets checked against.
 func FetchClientManifest() ([]SyncFile, error) {
+	active, worldErr := FetchActiveWorld()
+	if worldErr != nil {
+		return nil, worldErr
+	}
+	if active.Maintenance {
+		return nil, fmt.Errorf("world maintenance is in progress")
+	}
+	if active.World != nil {
+		pack, err := fetchWorldPack(active.World)
+		return pack.Files, err
+	}
 	resp, err := MakeGetRequest("/api/modpack/manifest")
 	if err != nil {
 		return nil, err

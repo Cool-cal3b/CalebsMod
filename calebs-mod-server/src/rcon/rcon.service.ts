@@ -22,7 +22,10 @@ export class RconService implements OnModuleInit, OnModuleDestroy {
 
   private async connect() {
     const now = Date.now();
-    if (this.connecting || (now - this.lastConnectionAttempt) < this.CONNECTION_RETRY_DELAY) {
+    if (
+      this.connecting ||
+      now - this.lastConnectionAttempt < this.CONNECTION_RETRY_DELAY
+    ) {
       return;
     }
 
@@ -68,8 +71,7 @@ export class RconService implements OnModuleInit, OnModuleDestroy {
           socket.removeAllListeners?.();
           socket.destroy();
         }
-      } catch (error) {
-      }
+      } catch (error) {}
       this.rcon = null;
     }
     this.connected = false;
@@ -79,10 +81,14 @@ export class RconService implements OnModuleInit, OnModuleDestroy {
     if (this.rcon) {
       try {
         await this.rcon.end();
-      } catch (error) {
-      }
+      } catch (error) {}
       this.forceDisconnect();
     }
+  }
+
+  async resetConnection() {
+    await this.disconnect();
+    this.lastConnectionAttempt = 0;
   }
 
   async send(command: string): Promise<string> {

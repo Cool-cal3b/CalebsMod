@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { randomUUID } from 'crypto';
 
 export type ServerSettingType = 'enum' | 'number' | 'boolean' | 'string';
 
@@ -34,7 +35,8 @@ export const SERVER_SETTINGS: ServerSettingDefinition[] = [
   {
     key: 'gamemode',
     label: 'Default game mode',
-    description: 'Game mode new players join in (does not affect players already online).',
+    description:
+      'Game mode new players join in (does not affect players already online).',
     type: 'enum',
     options: ['survival', 'creative', 'adventure', 'spectator'],
     default: 'survival',
@@ -69,12 +71,14 @@ export const SERVER_SETTINGS: ServerSettingDefinition[] = [
     description: 'Only players on the whitelist can join.',
     type: 'boolean',
     default: 'false',
-    liveCommand: (value) => (value === 'true' ? 'whitelist on' : 'whitelist off'),
+    liveCommand: (value) =>
+      value === 'true' ? 'whitelist on' : 'whitelist off',
   },
   {
     key: 'hardcore',
     label: 'Hardcore',
-    description: 'Players are locked to spectator mode instead of respawning on death.',
+    description:
+      'Players are locked to spectator mode instead of respawning on death.',
     type: 'boolean',
     default: 'false',
   },
@@ -114,16 +118,17 @@ export const SERVER_SETTINGS: ServerSettingDefinition[] = [
   },
 ];
 
-export function serverPropertiesPath(): string {
-  const dataPath = process.env.MINECRAFT_DATA_PATH || './minecraft-data';
+export function serverPropertiesPath(root?: string): string {
+  const dataPath =
+    root || process.env.MINECRAFT_DATA_PATH || './minecraft-data';
   return path.join(path.resolve(dataPath), 'server.properties');
 }
 
-export function readServerProperties(): {
+export function readServerProperties(root?: string): {
   values: Record<string, string>;
   fileExists: boolean;
 } {
-  const filePath = serverPropertiesPath();
+  const filePath = serverPropertiesPath(root);
   if (!fs.existsSync(filePath)) {
     return { values: {}, fileExists: false };
   }
@@ -135,8 +140,11 @@ export function readServerProperties(): {
 // itzg's image only fills in properties that aren't already present when the
 // container next boots, so writing these directly onto the file (creating it
 // if needed) is safe and persists whether or not the server has ever run.
-export function writeServerProperties(updates: Record<string, string>): void {
-  const filePath = serverPropertiesPath();
+export function writeServerProperties(
+  updates: Record<string, string>,
+  root?: string,
+): void {
+  const filePath = serverPropertiesPath(root);
   const dir = path.dirname(filePath);
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
@@ -145,7 +153,17 @@ export function writeServerProperties(updates: Record<string, string>): void {
   const existing = fs.existsSync(filePath)
     ? fs.readFileSync(filePath, 'utf-8')
     : '';
-  fs.writeFileSync(filePath, applyPropertyUpdates(existing, updates), 'utf-8');
+  const temporary = `${filePath}.${randomUUID()}.partial`;
+  try {
+    fs.writeFileSync(
+      temporary,
+      applyPropertyUpdates(existing, updates),
+      'utf-8',
+    );
+    fs.renameSync(temporary, filePath);
+  } finally {
+    if (fs.existsSync(temporary)) fs.unlinkSync(temporary);
+  }
 }
 
 function parseProperties(content: string): Record<string, string> {
@@ -204,6 +222,8 @@ export function validateAndNormalizeSettings(
     }
 
     const value = String(rawValue);
+    if (/[\r\n\0]/.test(value))
+      throw new Error(`Invalid multiline value for "${key}"`);
 
     switch (definition.type) {
       case 'enum':
@@ -221,13 +241,19 @@ export function validateAndNormalizeSettings(
       case 'number': {
         const num = Number(value);
         if (!Number.isFinite(num) || !Number.isInteger(num)) {
-          throw new Error(`Invalid value for "${key}": expected a whole number`);
+          throw new Error(
+            `Invalid value for "${key}": expected a whole number`,
+          );
         }
         if (definition.min !== undefined && num < definition.min) {
-          throw new Error(`Invalid value for "${key}": must be at least ${definition.min}`);
+          throw new Error(
+            `Invalid value for "${key}": must be at least ${definition.min}`,
+          );
         }
         if (definition.max !== undefined && num > definition.max) {
-          throw new Error(`Invalid value for "${key}": must be at most ${definition.max}`);
+          throw new Error(
+            `Invalid value for "${key}": must be at most ${definition.max}`,
+          );
         }
         break;
       }

@@ -1,6 +1,32 @@
 export namespace go_services {
-	
+
+	export class ActiveWorld {
+	    id: string;
+	    name: string;
+	    original: boolean;
+	    revision: number;
+	    generation: string;
+	    minecraftVersion: string;
+	    forgeVersion: string;
+
+	    static createFrom(source: any = {}) {
+	        return new ActiveWorld(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.original = source["original"];
+	        this.revision = source["revision"];
+	        this.generation = source["generation"];
+	        this.minecraftVersion = source["minecraftVersion"];
+	        this.forgeVersion = source["forgeVersion"];
+	    }
+	}
 	export class ClientStatus {
+	    worldName?: string;
+	    maintenance: boolean;
 	    launcherInstalled: boolean;
 	    instanceExists: boolean;
 	    serverInConfig: boolean;
@@ -11,13 +37,15 @@ export namespace go_services {
 	    missingExamples: string[];
 	    needsSync: boolean;
 	    manifestError?: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new ClientStatus(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.worldName = source["worldName"];
+	        this.maintenance = source["maintenance"];
 	        this.launcherInstalled = source["launcherInstalled"];
 	        this.instanceExists = source["instanceExists"];
 	        this.serverInConfig = source["serverInConfig"];
@@ -50,11 +78,11 @@ export namespace go_services {
 	    status: string;
 	    startedAt: string;
 	    finishedAt: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new DockerStatus(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.exists = source["exists"];
@@ -68,11 +96,11 @@ export namespace go_services {
 	    id: string;
 	    title: string;
 	    markdown: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new DocumentationDocument(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -83,11 +111,11 @@ export namespace go_services {
 	export class DocumentationSummary {
 	    id: string;
 	    title: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new DocumentationSummary(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -114,11 +142,11 @@ export namespace go_services {
 	    fileSize: number;
 	    fileType: string;
 	    relativePath: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new ModpackFileInfo(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.sha256 = source["sha256"];
@@ -131,17 +159,17 @@ export namespace go_services {
 	export class ModpackUploadResponse {
 	    filesProcessed: number;
 	    files: ModpackFileInfo[];
-	
+
 	    static createFrom(source: any = {}) {
 	        return new ModpackUploadResponse(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.filesProcessed = source["filesProcessed"];
 	        this.files = this.convertValues(source["files"], ModpackFileInfo);
 	    }
-	
+
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -172,11 +200,11 @@ export namespace go_services {
 	    required: boolean;
 	    serverOnly: boolean;
 	    clientOnly: boolean;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new PackFileDto(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.sha256 = source["sha256"];
@@ -196,11 +224,11 @@ export namespace go_services {
 	    online: number;
 	    max: number;
 	    players: string[];
-	
+
 	    static createFrom(source: any = {}) {
 	        return new PlayersInfo(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.online = source["online"];
@@ -213,11 +241,11 @@ export namespace go_services {
 	    uuid: string;
 	    lastSeen: number;
 	    joinCount: number;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new RecentPlayer(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.username = source["username"];
@@ -229,17 +257,17 @@ export namespace go_services {
 	export class RecentPlayersResponse {
 	    windowDays: number;
 	    players: RecentPlayer[];
-	
+
 	    static createFrom(source: any = {}) {
 	        return new RecentPlayersResponse(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.windowDays = source["windowDays"];
 	        this.players = this.convertValues(source["players"], RecentPlayer);
 	    }
-	
+
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -268,11 +296,11 @@ export namespace go_services {
 	    max?: number;
 	    value: string;
 	    appliesLive: boolean;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new ServerSetting(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.key = source["key"];
@@ -292,11 +320,11 @@ export namespace go_services {
 	    serverRunning: boolean;
 	    appliedLive?: string[];
 	    restartRequired?: string[];
-	
+
 	    static createFrom(source: any = {}) {
 	        return new ServerSettingsResponse(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.settings = this.convertValues(source["settings"], ServerSetting);
@@ -305,7 +333,7 @@ export namespace go_services {
 	        this.appliedLive = source["appliedLive"];
 	        this.restartRequired = source["restartRequired"];
 	    }
-	
+
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -325,21 +353,25 @@ export namespace go_services {
 		}
 	}
 	export class ServerStatusResponse {
+	    world?: ActiveWorld;
+	    maintenance: boolean;
 	    dockerStatus: DockerStatus;
 	    rconConnected: boolean;
 	    players: PlayersInfo;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new ServerStatusResponse(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.world = this.convertValues(source["world"], ActiveWorld);
+	        this.maintenance = source["maintenance"];
 	        this.dockerStatus = this.convertValues(source["dockerStatus"], DockerStatus);
 	        this.rconConnected = source["rconConnected"];
 	        this.players = this.convertValues(source["players"], PlayersInfo);
 	    }
-	
+
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -364,11 +396,11 @@ export namespace go_services {
 	    updateAvailable: boolean;
 	    supported: boolean;
 	    error?: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new UpdateStatus(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.currentVersion = source["currentVersion"];
@@ -382,7 +414,7 @@ export namespace go_services {
 }
 
 export namespace notificationagent {
-	
+
 	export class Device {
 	    id: string;
 	    username: string;
@@ -391,11 +423,11 @@ export namespace notificationagent {
 	    acceptsDirectPings: boolean;
 	    createdAt: number;
 	    lastConnectedAt?: number;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new Device(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -411,11 +443,11 @@ export namespace notificationagent {
 	    eventId: string;
 	    deliveredNow: boolean;
 	    expiresAt: number;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new PingResult(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.eventId = source["eventId"];
@@ -427,11 +459,11 @@ export namespace notificationagent {
 	    username: string;
 	    acceptsDirectPings: boolean;
 	    connected: boolean;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new Recipient(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.username = source["username"];
@@ -444,11 +476,11 @@ export namespace notificationagent {
 	    directPings: boolean;
 	    playerJoined: boolean;
 	    playerLeft: boolean;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new Settings(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.startWithWindows = source["startWithWindows"];
@@ -468,11 +500,11 @@ export namespace notificationagent {
 	    lastError?: string;
 	    protocolVersion: number;
 	    buildVersion: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new State(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.agentRunning = source["agentRunning"];
@@ -486,7 +518,7 @@ export namespace notificationagent {
 	        this.protocolVersion = source["protocolVersion"];
 	        this.buildVersion = source["buildVersion"];
 	    }
-	
+
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;

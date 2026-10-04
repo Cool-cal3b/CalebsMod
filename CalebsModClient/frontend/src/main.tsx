@@ -1,11 +1,10 @@
 import React from 'react'
 import {createRoot} from 'react-dom/client'
-import {BrowserRouter, Routes, Route} from 'react-router-dom'
+import {BrowserRouter, Routes, Route, Navigate} from 'react-router-dom'
 import './style.css'
 import App from './App'
 import Admin from './Admin'
 import InstallLauncherPage from './InstallLauncher'
-import AllMods from './AllMods'
 import Wiki from './Wiki'
 import {ToastProvider} from './components/Toast'
 
@@ -21,7 +20,7 @@ root.render(
                     <Route path="/" element={<App/>} />
                     <Route path="/admin" element={<Admin/>} />
                     <Route path="/install-launcher" element={<InstallLauncherPage/>} />
-                    <Route path="/all-mods" element={<AllMods/>} />
+                    <Route path="/all-mods" element={<Navigate to="/admin" replace/>} />
                     <Route path="/wiki" element={<Wiki/>} />
                 </Routes>
             </BrowserRouter>

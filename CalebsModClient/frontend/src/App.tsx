@@ -307,7 +307,7 @@ function App() {
 
 	/* ---------------------------------------------------------------- state */
 
-	const busy = isSyncing || isResetting || isUpdating;
+  const busy = isSyncing || isResetting || isUpdating || !!serverStatus?.maintenance;
 	const percent = progress && progress.total > 0 ? (progress.done / progress.total) * 100 : null;
 	const progressLabel = progress
 		? progress.phase === 'verifying'
@@ -401,7 +401,7 @@ function App() {
 
 	// SyncMods needs the Prism instance to already exist (it is created through
 	// Prism's import UI on first launch), so only offer it once it does.
-	const canSync = launcherInstalled && !!clientStatus?.instanceExists && !!clientStatus?.needsSync;
+  const canSync = launcherInstalled && (!!clientStatus?.instanceExists || !!clientStatus?.worldName) && !!clientStatus?.needsSync;
 
 	const syncLabel = (() => {
 		if (!clientStatus) return 'Sync Modpack';
@@ -459,7 +459,8 @@ function App() {
 			<main className="home__main">
 				<div className="hero">
 					<img src={logo} alt="CalebsMod" className="hero__logo" />
-					<p className="hero__tag">Private modpack for friends</p>
+          <p className="hero__tag">Private modpack for friends</p>
+          {serverStatus?.world && <p className="hero__tag">{serverStatus.world.name}{serverStatus.maintenance ? ' · World maintenance in progress' : ''}</p>}
 				</div>
 
 				{(updateAvailable || isUpdating) && (
@@ -719,7 +720,7 @@ function App() {
 			<ConfirmModal
 				isOpen={dialog === 'reset'}
 				title="Reset client?"
-				message="This deletes your CalebsMod instance and all local modpack data, then re-downloads everything from scratch. Your Microsoft login is kept. Close Minecraft first."
+				message="For a managed world, this re-downloads its modpack files and keeps local saves, maps, screenshots, and player options. Before world management is enabled, this recreates the legacy instance. Your Microsoft login is kept. Close Minecraft first."
 				confirmLabel="Reset client"
 				onConfirm={resetClient}
 				onCancel={() => setDialog(null)}

@@ -22,6 +22,10 @@ export function DeleteFile(arg1) {
   return window['go']['main']['Admin']['DeleteFile'](arg1);
 }
 
+export function DownloadWorldBackup(arg1) {
+  return window['go']['main']['Admin']['DownloadWorldBackup'](arg1);
+}
+
 export function GetAllFiles(arg1) {
   return window['go']['main']['Admin']['GetAllFiles'](arg1);
 }
@@ -58,6 +62,10 @@ export function SelectAndUploadModpackZip() {
   return window['go']['main']['Admin']['SelectAndUploadModpackZip']();
 }
 
+export function SelectWorldZIP(arg1, arg2) {
+  return window['go']['main']['Admin']['SelectWorldZIP'](arg1, arg2);
+}
+
 export function SetAdminKey(arg1) {
   return window['go']['main']['Admin']['SetAdminKey'](arg1);
 }
@@ -84,4 +92,8 @@ export function UpdateServerSettings(arg1) {
 
 export function UploadModpackZip(arg1, arg2) {
   return window['go']['main']['Admin']['UploadModpackZip'](arg1, arg2);
+}
+
+export function WorldRequest(arg1, arg2, arg3) {
+  return window['go']['main']['Admin']['WorldRequest'](arg1, arg2, arg3);
 }

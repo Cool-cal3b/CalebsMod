@@ -1,3 +1,4 @@
+import { WorldStore } from '../worlds/world-store';
 import { Injectable, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as path from 'path';
@@ -31,8 +32,20 @@ const UUID_PATTERN = /UUID of player (\S+) is ([0-9a-f-]{36})/;
 // events buried in megabytes of Forge chatter.
 const ROTATED_LOG_PATTERN = /^(\d{4})-(\d{2})-(\d{2})-\d+\.log\.gz$/;
 
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-                'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const MONTHS = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+];
 
 const POLL_INTERVAL_MS = 10000;
 const MAX_WINDOW_DAYS = 183; // ~6 months, for the home screen's "see more"
@@ -55,11 +68,13 @@ export class PlayerActivityService implements OnModuleInit, OnModuleDestroy {
   private logsDir: string;
   private timer: NodeJS.Timeout | null = null;
   private offset = 0;
+  private worldPath = '';
   private partialLine = '';
 
   constructor(
     private configService: ConfigService,
     private db: DatabaseService,
+    private worlds?: WorldStore,
   ) {
     const dataPath =
       this.configService.get<string>('MINECRAFT_DATA_PATH') ||
@@ -85,7 +100,10 @@ export class PlayerActivityService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  getRecentPlayers(days?: number): { windowDays: number; players: RecentPlayer[] } {
+  getRecentPlayers(days?: number): {
+    windowDays: number;
+    players: RecentPlayer[];
+  } {
     const windowDays = this.clampDays(days);
     const since = Date.now() - windowDays * 24 * 60 * 60 * 1000;
 
@@ -145,6 +163,16 @@ export class PlayerActivityService implements OnModuleInit, OnModuleDestroy {
    * since the last tick is now in a `.gz` we have to go back for.
    */
   private poll() {
+    if (this.worlds) {
+      if (this.worlds.pending().length) return;
+      const root = this.worlds.dataPath();
+      if (root !== this.worldPath) {
+        this.worldPath = root;
+        this.logsDir = path.join(root, 'logs');
+        this.offset = 0;
+        this.partialLine = '';
+      }
+    }
     const latestLog = path.join(this.logsDir, 'latest.log');
 
     try {
@@ -213,7 +241,9 @@ export class PlayerActivityService implements OnModuleInit, OnModuleDestroy {
 
     for (const name of files) {
       try {
-        const raw = zlib.gunzipSync(fs.readFileSync(path.join(this.logsDir, name)));
+        const raw = zlib.gunzipSync(
+          fs.readFileSync(path.join(this.logsDir, name)),
+        );
         this.recordEvents(this.parseLines(raw.toString('utf8').split(/\r?\n/)));
       } catch (error) {
         console.error(`Player activity: could not read ${name}:`, error);
@@ -260,7 +290,14 @@ export class PlayerActivityService implements OnModuleInit, OnModuleDestroy {
     const month = MONTHS.indexOf(match[2]);
     if (month === -1) return null;
 
-    return Date.UTC(+match[3], month, +match[1], +match[4], +match[5], +match[6]);
+    return Date.UTC(
+      +match[3],
+      month,
+      +match[1],
+      +match[4],
+      +match[5],
+      +match[6],
+    );
   }
 
   private recordEvents(events: PlayerEvent[]) {

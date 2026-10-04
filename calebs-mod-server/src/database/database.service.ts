@@ -11,6 +11,7 @@ export class DatabaseService implements OnModuleInit {
   constructor(private configService: ConfigService) {}
 
   onModuleInit() {
+    if (this.db) return;
     const dbPath =
       this.configService.get<string>('DB_PATH') || './data/calebs-mod.db';
     const dbDir = path.dirname(dbPath);
@@ -203,15 +204,16 @@ export class DatabaseService implements OnModuleInit {
   }
 
   getDb(): Database.Database {
+    if (!this.db) this.onModuleInit();
     return this.db;
   }
 
   prepare(sql: string): Database.Statement {
-    return this.db.prepare(sql);
+    return this.getDb().prepare(sql);
   }
 
   transaction<T>(fn: () => T): T {
-    return this.db.transaction(fn)();
+    return this.getDb().transaction(fn)();
   }
 
   logAudit(

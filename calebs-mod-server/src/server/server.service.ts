@@ -1,13 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { DockerService } from '../docker/docker.service';
 import { RconService } from '../rcon/rcon.service';
-import { ModpackService } from '../modpack/modpack.service';
+import { WorldService } from '../worlds/world.service';
 import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import * as fs from 'fs';
 import * as path from 'path';
-import * as crypto from 'crypto';
-import { PackFileDto } from 'src/modpack/dto/manifest.dto';
 import {
   SERVER_SETTINGS,
   readServerProperties,
@@ -53,7 +51,7 @@ export class ServerService {
   constructor(
     private dockerService: DockerService,
     private rconService: RconService,
-    private modpackService: ModpackService,
+    private worlds: WorldService,
   ) {
     const accessKeyId = process.env.S3_ACCESS_KEY_ID;
     const secretAccessKey = process.env.S3_SECRET_ACCESS_KEY;
@@ -74,86 +72,30 @@ export class ServerService {
   }
 
   async startServer() {
-    await this.syncModpackFiles();
-    return await this.dockerService.startServer();
-  }
-
-  private async syncModpackFiles() {
-    const minecraftDataPath =
-      process.env.MINECRAFT_DATA_PATH || './minecraft-data';
-    const absoluteMinecraftPath = path.resolve(minecraftDataPath);
-
-    const manifest = this.modpackService.getServerManifest();
-
-    if (manifest.length === 0) {
-      console.log('No files to sync to Minecraft server');
-      return;
-    }
-
-    console.log(`Syncing ${manifest.length} files to Minecraft server...`);
-
-    for (const file of manifest) {
-      const sourceFilePath = this.modpackService.getPackFile(file.sha256);
-
-      if (!sourceFilePath || !fs.existsSync(sourceFilePath)) {
-        console.warn(
-          `Source file not found for ${file.fileName} (${file.sha256})`,
-        );
-        continue;
-      }
-
-      const targetPath = path.join(absoluteMinecraftPath, file.relativePath);
-      const targetDir = path.dirname(targetPath);
-
-      if (!fs.existsSync(targetDir)) {
-        fs.mkdirSync(targetDir, { recursive: true });
-      }
-
-      if (!fs.existsSync(targetPath)) {
-        console.log(`Copying ${file.fileName} to ${file.relativePath}`);
-        fs.copyFileSync(sourceFilePath, targetPath);
-      } else {
-        const existingSha256 = this.calculateFileSha256(targetPath);
-        if (existingSha256 !== file.sha256) {
-          console.log(`Updating ${file.fileName} (hash mismatch)`);
-          fs.copyFileSync(sourceFilePath, targetPath);
-        }
-      }
-    }
-
-    this.pruneFilesNotInManifest(manifest, absoluteMinecraftPath);
-
-    console.log('File sync complete');
-  }
-
-  private calculateFileSha256(filePath: string): string {
-    const fileBuffer = fs.readFileSync(filePath);
-    return crypto.createHash('sha256').update(fileBuffer).digest('hex');
+    const operation = this.worlds.control('start');
+    return {
+      status: 'started',
+      message: 'Starting Minecraft; follow progress in Worlds',
+      operationId: operation.id,
+    };
   }
 
   async stopServer() {
-    try {
-      if (this.rconService.isConnected()) {
-        await this.rconService.say('Server is shutting down...');
-        await this.rconService.stop();
-      }
-    } catch (error) {
-      console.error('Error sending shutdown message:', error);
-    }
-
-    return await this.dockerService.stopServer();
+    const operation = this.worlds.control('stop');
+    return {
+      status: 'stopped',
+      message: 'Saving and stopping Minecraft; follow progress in Worlds',
+      operationId: operation.id,
+    };
   }
 
   async restartServer() {
-    try {
-      if (this.rconService.isConnected()) {
-        await this.rconService.say('Server is restarting...');
-      }
-    } catch (error) {
-      console.error('Error sending restart message:', error);
-    }
-
-    return await this.dockerService.restartServer();
+    const operation = this.worlds.control('restart');
+    return {
+      status: 'restarted',
+      message: 'Restarting Minecraft; follow progress in Worlds',
+      operationId: operation.id,
+    };
   }
 
   async getIpAndPort() {
@@ -407,6 +349,7 @@ export class ServerService {
       dockerStatus,
       rconConnected,
       players,
+      ...this.worlds.activeInfo(),
     };
   }
 
@@ -484,7 +427,9 @@ export class ServerService {
   }
 
   async getSettings() {
-    const { values, fileExists } = readServerProperties();
+    const { values, fileExists } = readServerProperties(
+      this.worlds.store.dataPath(),
+    );
     const dockerStatus = await this.dockerService.getServerStatus();
 
     return {
@@ -510,8 +455,10 @@ export class ServerService {
   // only take effect after a restart, which is reported back so the admin
   // panel can prompt for one.
   async updateSettings(updates: Record<string, string>) {
+    const active = this.worlds.store.active();
+    if (active) return this.worlds.updateSettings(active.id, updates);
     const normalized = validateAndNormalizeSettings(updates);
-    writeServerProperties(normalized);
+    writeServerProperties(normalized, this.worlds.store.dataPath());
 
     const dockerStatus = await this.dockerService.getServerStatus();
     const appliedLive: string[] = [];
@@ -559,54 +506,5 @@ export class ServerService {
       : [];
 
     return { online, max, players };
-  }
-
-  private pruneFilesNotInManifest(
-    manifest: PackFileDto[],
-    absoluteMinecraftPath: string,
-  ) {
-    const expectedPaths = new Set(
-      manifest.map((f) =>
-        path.normalize(path.join(absoluteMinecraftPath, f.relativePath)),
-      ),
-    );
-
-    const dirsToPrune = [
-      'mods',
-      'config',
-      'thingpacks',
-      'defaultconfigs',
-      'resourcepacks',
-      'shaderpacks',
-    ];
-    for (const dirName of dirsToPrune) {
-      const dirPath = path.join(absoluteMinecraftPath, dirName);
-      if (!fs.existsSync(dirPath)) continue;
-      this.pruneDirRecursive(dirPath, absoluteMinecraftPath, expectedPaths);
-    }
-  }
-
-  private pruneDirRecursive(
-    dirPath: string,
-    minecraftRoot: string,
-    expectedPaths: Set<string>,
-  ) {
-    for (const name of fs.readdirSync(dirPath)) {
-      const fullPath = path.join(dirPath, name);
-      const normalizedPath = path.normalize(fullPath);
-      const stat = fs.statSync(fullPath);
-
-      if (stat.isDirectory()) {
-        this.pruneDirRecursive(fullPath, minecraftRoot, expectedPaths);
-        if (fs.readdirSync(fullPath).length === 0) {
-          fs.rmdirSync(fullPath);
-        }
-      } else if (!expectedPaths.has(normalizedPath)) {
-        console.log(
-          `Pruning (not in server manifest): ${path.relative(minecraftRoot, fullPath)}`,
-        );
-        fs.rmSync(fullPath, { force: true });
-      }
-    }
   }
 }

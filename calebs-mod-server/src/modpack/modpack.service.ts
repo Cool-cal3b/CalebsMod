@@ -1,4 +1,5 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, HttpException, ConflictException } from '@nestjs/common';
+import { WorldStore } from '../worlds/world-store';
 import { ConfigService } from '@nestjs/config';
 import { DatabaseService } from '../database/database.service';
 import { PackFileDto } from './dto/manifest.dto';
@@ -38,6 +39,7 @@ export class ModpackService {
   constructor(
     private db: DatabaseService,
     private configService: ConfigService,
+    private worlds: WorldStore,
   ) {
     this.filesStorePath = path.join(process.cwd(), 'storage', 'pack-files');
     this.cachePath = path.join(process.cwd(), 'storage', 'cache');
@@ -110,7 +112,12 @@ export class ModpackService {
   private createRevision(
     files: Array<
       | { sha256: string; action: 'add' }
-      | { sha256: string; action: 'remove'; relativePath: string; serverOnly: boolean }
+      | {
+          sha256: string;
+          action: 'remove';
+          relativePath: string;
+          serverOnly: boolean;
+        }
     >,
     user?: string,
   ): number {
@@ -120,9 +127,7 @@ export class ModpackService {
 
     return this.db.transaction(() => {
       const result = this.db
-        .prepare(
-          'INSERT INTO revisions (created_at, user) VALUES (?, ?)',
-        )
+        .prepare('INSERT INTO revisions (created_at, user) VALUES (?, ?)')
         .run(Date.now(), user || null);
 
       const revisionId = result.lastInsertRowid as number;
@@ -135,7 +140,13 @@ export class ModpackService {
         if (file.action === 'add') {
           stmt.run(revisionId, file.sha256, file.action, null, null);
         } else {
-          stmt.run(revisionId, file.sha256, file.action, file.relativePath, file.serverOnly ? 1 : 0);
+          stmt.run(
+            revisionId,
+            file.sha256,
+            file.action,
+            file.relativePath,
+            file.serverOnly ? 1 : 0,
+          );
         }
       }
 
@@ -218,7 +229,7 @@ export class ModpackService {
       console.log(entry.entryName);
 
       const entryPath = entry.entryName.replace(/\\/g, '/');
-      
+
       const normalized = entry.entryName.replace(/\\/g, '/');
       let relevantPath = normalized;
 
@@ -261,16 +272,24 @@ export class ModpackService {
         if (!fileType) continue;
 
         const relativePathInFolder = pathParts.slice(1).join('/');
-        relativePath = path.join(topLevelFolder, relativePathInFolder).replace(/\\/g, '/');
+        relativePath = path
+          .join(topLevelFolder, relativePathInFolder)
+          .replace(/\\/g, '/');
       }
 
-      const tempFilePath = path.join(this.cachePath, `temp-${Date.now()}-${Math.random()}-${fileName}`);
-      
+      const tempFilePath = path.join(
+        this.cachePath,
+        `temp-${Date.now()}-${Math.random()}-${fileName}`,
+      );
+
       try {
         fs.writeFileSync(tempFilePath, entry.getData());
 
         const fileBuffer = fs.readFileSync(tempFilePath);
-        const sha256 = crypto.createHash('sha256').update(fileBuffer).digest('hex');
+        const sha256 = crypto
+          .createHash('sha256')
+          .update(fileBuffer)
+          .digest('hex');
         const fileSize = fileBuffer.length;
 
         const targetPath = path.join(this.filesStorePath, sha256);
@@ -317,7 +336,7 @@ export class ModpackService {
 
     if (newFiles.length > 0) {
       this.createRevision(
-        newFiles.map(sha256 => ({ sha256, action: 'add' })),
+        newFiles.map((sha256) => ({ sha256, action: 'add' })),
         user,
       );
     }
@@ -332,14 +351,23 @@ export class ModpackService {
   removeFile(sha256: string, user?: string) {
     const file = this.db
       .prepare('SELECT relative_path, server_only FROM files WHERE sha256 = ?')
-      .get(sha256) as { relative_path: string; server_only: number } | undefined;
+      .get(sha256) as
+      | { relative_path: string; server_only: number }
+      | undefined;
 
     if (!file) {
       return;
     }
 
     this.createRevision(
-      [{ sha256, action: 'remove', relativePath: file.relative_path, serverOnly: file.server_only === 1 }],
+      [
+        {
+          sha256,
+          action: 'remove',
+          relativePath: file.relative_path,
+          serverOnly: file.server_only === 1,
+        },
+      ],
       user,
     );
 
@@ -354,6 +382,11 @@ export class ModpackService {
   }
 
   getManifest(): PackFileDto[] {
+    const world = this.worlds.active();
+    if (world)
+      return world.published
+        .filter((f) => !f.serverOnly)
+        .map(({ serverSha256, ...f }) => f);
     const files = this.db
       .prepare('SELECT * FROM files WHERE server_only = 0')
       .all() as any[];
@@ -372,6 +405,11 @@ export class ModpackService {
   }
 
   getServerManifest(): PackFileDto[] {
+    const world = this.worlds.active();
+    if (world)
+      return world.published
+        .filter((f) => !f.clientOnly)
+        .map((f) => ({ ...f, sha256: f.serverSha256 || f.sha256 }));
     const files = this.db
       .prepare('SELECT * FROM files WHERE client_only = 0')
       .all() as any[];
@@ -397,11 +435,32 @@ export class ModpackService {
       return null;
     }
 
-    const filePath = path.join(this.filesStorePath, sha256);
+    const filePath = this.worlds.blob(sha256);
     return fs.existsSync(filePath) ? filePath : null;
   }
 
-  async createBatchZip(sha256s: string[]): Promise<Buffer> {
+  async createBatchZip(
+    sha256s: string[],
+    binding?: { worldId?: string; revision?: number; generation?: string },
+  ): Promise<Buffer> {
+    const world = this.worlds.active();
+    if (world) {
+      if (this.worlds.pending().length)
+        throw new ConflictException('World maintenance is in progress');
+      if (
+        binding?.worldId !== world.id ||
+        binding.revision !== world.revision ||
+        binding.generation !== world.generation
+      )
+        throw new ConflictException('World or pack changed; restart sync');
+      const allowed = new Set(
+        world.published.filter((f) => !f.serverOnly).map((f) => f.sha256),
+      );
+      if (sha256s.some((hash) => !allowed.has(hash)))
+        throw new ConflictException(
+          'Requested files do not belong to this published pack',
+        );
+    }
     const zip = new AdmZip();
 
     for (const sha256 of sha256s) {
@@ -418,6 +477,7 @@ export class ModpackService {
   }
 
   getLatestRevision(): number {
+    if (this.worlds.active()) return this.worlds.active()!.revision;
     const result = this.db
       .prepare('SELECT MAX(id) as latestRevision FROM revisions')
       .get() as { latestRevision: number | null };
@@ -431,7 +491,11 @@ export class ModpackService {
     };
   }
 
-  setRevisionTrackingPaused(paused: boolean, user?: string, resetHistory = false) {
+  setRevisionTrackingPaused(
+    paused: boolean,
+    user?: string,
+    resetHistory = false,
+  ) {
     const wasPaused = this.isRevisionTrackingPaused();
 
     if (resetHistory) {
@@ -445,11 +509,17 @@ export class ModpackService {
       baselineRevision = this.createBaselineRevisionIfNeeded(user);
     }
 
-    this.db.logAudit('set_revision_tracking_paused', 'modpack', 'revision_tracking', user, {
-      paused,
-      resetHistory,
-      baselineRevision,
-    });
+    this.db.logAudit(
+      'set_revision_tracking_paused',
+      'modpack',
+      'revision_tracking',
+      user,
+      {
+        paused,
+        resetHistory,
+        baselineRevision,
+      },
+    );
 
     return {
       paused,
@@ -459,9 +529,16 @@ export class ModpackService {
     };
   }
 
-  updateFileFlags(sha256: string, serverOnly: boolean, clientOnly: boolean, user?: string) {
+  updateFileFlags(
+    sha256: string,
+    serverOnly: boolean,
+    clientOnly: boolean,
+    user?: string,
+  ) {
     this.db
-      .prepare('UPDATE files SET server_only = ?, client_only = ? WHERE sha256 = ?')
+      .prepare(
+        'UPDATE files SET server_only = ?, client_only = ? WHERE sha256 = ?',
+      )
       .run(serverOnly ? 1 : 0, clientOnly ? 1 : 0, sha256);
 
     this.db.logAudit('update_file_flags', 'file', sha256, user, {
@@ -481,20 +558,24 @@ export class ModpackService {
 
     const allFiles = this.db
       .prepare('SELECT sha256, relative_path, server_only FROM files')
-      .all() as Array<{ sha256: string; relative_path: string; server_only: number }>;
+      .all() as Array<{
+      sha256: string;
+      relative_path: string;
+      server_only: number;
+    }>;
 
     if (allFiles.length === 0) {
       return { revisionId: 0, filesResynced: 0, message: 'No files to resync' };
     }
 
     const actions = [
-      ...allFiles.map(f => ({
+      ...allFiles.map((f) => ({
         sha256: f.sha256,
         action: 'remove' as const,
         relativePath: f.relative_path,
         serverOnly: f.server_only === 1,
       })),
-      ...allFiles.map(f => ({ sha256: f.sha256, action: 'add' as const })),
+      ...allFiles.map((f) => ({ sha256: f.sha256, action: 'add' as const })),
     ];
 
     const revisionId = this.createRevision(actions, user);
@@ -539,14 +620,18 @@ export class ModpackService {
   deleteAllFiles(user?: string) {
     const allFiles = this.db
       .prepare('SELECT sha256, relative_path, server_only FROM files')
-      .all() as Array<{ sha256: string; relative_path: string; server_only: number }>;
+      .all() as Array<{
+      sha256: string;
+      relative_path: string;
+      server_only: number;
+    }>;
 
     if (allFiles.length === 0) {
       return { filesDeleted: 0, message: 'No files to delete' };
     }
 
     this.createRevision(
-      allFiles.map(f => ({
+      allFiles.map((f) => ({
         sha256: f.sha256,
         action: 'remove' as const,
         relativePath: f.relative_path,
@@ -575,6 +660,11 @@ export class ModpackService {
   }
 
   async getSyncData(fromRevisionId: number) {
+    if (this.worlds.active())
+      throw new HttpException(
+        'Update the client to use world-specific sync',
+        426,
+      );
     const latestRevision = this.getLatestRevision();
 
     if (fromRevisionId >= latestRevision) {
@@ -609,7 +699,10 @@ export class ModpackService {
       f_server_only: number | null;
     }>;
 
-    const fileMap = new Map<string, { action: string; file: any; serverOnly: boolean }>();
+    const fileMap = new Map<
+      string,
+      { action: string; file: any; serverOnly: boolean }
+    >();
 
     for (const rf of revisionFiles) {
       const serverOnly = rf.rf_server_only ?? rf.f_server_only ?? 0;
@@ -650,13 +743,19 @@ export class ModpackService {
     };
   }
 
-  async createSyncZip(filesToAdd: Array<{ sha256: string; relativePath: string }>): Promise<Buffer> {
+  async createSyncZip(
+    filesToAdd: Array<{ sha256: string; relativePath: string }>,
+  ): Promise<Buffer> {
     const zip = new AdmZip();
 
     for (const file of filesToAdd) {
       const sourcePath = this.getPackFile(file.sha256);
       if (sourcePath && fs.existsSync(sourcePath)) {
-        zip.addLocalFile(sourcePath, path.dirname(file.relativePath), path.basename(file.relativePath));
+        zip.addLocalFile(
+          sourcePath,
+          path.dirname(file.relativePath),
+          path.basename(file.relativePath),
+        );
       }
     }
 

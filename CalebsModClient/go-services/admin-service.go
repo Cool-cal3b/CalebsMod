@@ -158,6 +158,8 @@ const (
 )
 
 type ServerStatusResponse struct {
+	World         *ActiveWorld `json:"world"`
+	Maintenance   bool         `json:"maintenance"`
 	DockerStatus  DockerStatus `json:"dockerStatus"`
 	RconConnected bool         `json:"rconConnected"`
 	Players       PlayersInfo  `json:"players"`

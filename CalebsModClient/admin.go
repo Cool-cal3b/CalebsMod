@@ -121,3 +121,21 @@ func (a *Admin) DeleteAllFiles() error {
 func (a *Admin) DeleteFile(sha256 string) error {
 	return go_services.DeleteFile(sha256)
 }
+
+func (a *Admin) WorldRequest(method, endpoint, payload string) (string, error) {
+	return go_services.WorldRequest(method, endpoint, payload)
+}
+func (a *Admin) SelectWorldZIP(endpoint, name string) (string, error) {
+	file, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{Title: "Select ZIP", Filters: []runtime.FileFilter{{DisplayName: "ZIP files", Pattern: "*.zip"}}})
+	if err != nil || file == "" {
+		return "", err
+	}
+	return go_services.UploadWorldFile(endpoint, file, name)
+}
+func (a *Admin) DownloadWorldBackup(id string) error {
+	file, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{Title: "Save world backup", DefaultFilename: "world-backup-" + id + ".zip", Filters: []runtime.FileFilter{{DisplayName: "ZIP files", Pattern: "*.zip"}}})
+	if err != nil || file == "" {
+		return err
+	}
+	return go_services.DownloadWorldBackup(id, file)
+}

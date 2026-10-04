@@ -51,6 +51,16 @@ const (
 )
 
 func StartMinecraftClient() (bool, error) {
+	active, worldErr := FetchActiveWorld()
+	if worldErr != nil {
+		return false, worldErr
+	}
+	if active.Maintenance {
+		return false, fmt.Errorf("world maintenance is in progress")
+	}
+	if active.World != nil {
+		return startWorldMinecraftClient(active.World)
+	}
 	prismPath, err := ensurePrismLauncherInstalled()
 	if err != nil {
 		return false, fmt.Errorf("failed to ensure PrismLauncher is installed: %w", err)
@@ -130,6 +140,16 @@ func DeleteLauncher() (bool, error) {
 // half-way) can leave stale mods, configs and datapacks behind that then fail the
 // FML handshake. This takes the client back to a known-good baseline.
 func ResetClient() (bool, error) {
+	active, worldErr := FetchActiveWorld()
+	if worldErr != nil {
+		return false, worldErr
+	}
+	if active.Maintenance {
+		return false, fmt.Errorf("world maintenance is in progress")
+	}
+	if active.World != nil {
+		return resetWorldClient(active.World)
+	}
 	prismPath, err := getPrismLauncherPath()
 	if err != nil {
 		return false, fmt.Errorf("failed to get PrismLauncher path: %w", err)
@@ -216,6 +236,21 @@ func clearReadOnlyAttributes(root string) error {
 }
 
 func SyncMods() (bool, error) {
+	active, worldErr := FetchActiveWorld()
+	if worldErr != nil {
+		return false, worldErr
+	}
+	if active.Maintenance {
+		return false, fmt.Errorf("world maintenance is in progress")
+	}
+	if active.World != nil {
+		prism, err := getPrismLauncherPath()
+		if err != nil {
+			return false, err
+		}
+		err = syncWorldInstance(prism, active.World)
+		return err == nil, err
+	}
 	prismPath, err := getPrismLauncherPath()
 	if err != nil {
 		return false, fmt.Errorf("failed to get PrismLauncher path: %w", err)

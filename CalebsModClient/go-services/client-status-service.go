@@ -20,6 +20,8 @@ const (
 // It drives the home screen: whether the sync button is needed, and what the
 // status bar should say.
 type ClientStatus struct {
+	WorldName         string   `json:"worldName,omitempty"`
+	Maintenance       bool     `json:"maintenance"`
 	LauncherInstalled bool     `json:"launcherInstalled"`
 	InstanceExists    bool     `json:"instanceExists"`
 	ServerInConfig    bool     `json:"serverInConfig"`
@@ -46,7 +48,18 @@ func GetClientStatus() (ClientStatus, error) {
 		status.LauncherInstalled = true
 	}
 
-	instancePath := filepath.Join(prismPath, "instances", INSTANCE_NAME)
+	active, worldErr := FetchActiveWorld()
+	if worldErr != nil {
+		status.ManifestError = worldErr.Error()
+		return status, nil
+	}
+	status.Maintenance = active.Maintenance
+	instanceName := INSTANCE_NAME
+	if active.World != nil {
+		instanceName = worldInstanceName(active.World)
+		status.WorldName = active.World.Name
+	}
+	instancePath := filepath.Join(prismPath, "instances", instanceName)
 	minecraftPath := GameRootPath(instancePath)
 
 	if _, err := os.Stat(filepath.Join(instancePath, "instance.cfg")); err == nil {
@@ -55,12 +68,27 @@ func GetClientStatus() (ClientStatus, error) {
 
 	status.ServerInConfig = serverIsInServersFile(filepath.Join(minecraftPath, "servers.dat"))
 
-	manifest, err := FetchClientManifest()
+	var manifest []SyncFile
+	if active.World != nil {
+		var pack WorldPack
+		pack, err = fetchWorldPack(active.World)
+		manifest = pack.Files
+		state, readErr := os.ReadFile(filepath.Join(instancePath, ".calebs-world-sync.json"))
+		var previous WorldPack
+		if readErr != nil || json.Unmarshal(state, &previous) != nil || previous.Revision != active.World.Revision || previous.Generation != active.World.Generation {
+			status.NeedsSync = true
+		}
+		if _, pendingErr := os.Stat(filepath.Join(instancePath, ".calebs-world-sync.json.pending")); pendingErr == nil {
+			status.NeedsSync = true
+		}
+	} else {
+		manifest, err = FetchClientManifest()
+	}
 	if err != nil {
 		// Without the manifest we cannot tell which files are missing, but the
 		// caller can still act on the servers.dat check.
 		status.ManifestError = err.Error()
-		status.NeedsSync = !status.InstanceExists || !status.ServerInConfig
+		status.NeedsSync = status.NeedsSync || !status.InstanceExists || !status.ServerInConfig
 		return status, nil
 	}
 
@@ -82,7 +110,7 @@ func GetClientStatus() (ClientStatus, error) {
 		}
 	}
 
-	status.NeedsSync = !status.InstanceExists || !status.ServerInConfig || status.FilesMissing > 0
+	status.NeedsSync = status.NeedsSync || !status.InstanceExists || !status.ServerInConfig || status.FilesMissing > 0
 	return status, nil
 }
 
