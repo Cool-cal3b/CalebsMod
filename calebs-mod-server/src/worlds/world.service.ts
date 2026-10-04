@@ -855,6 +855,54 @@ export class WorldService {
       return this.summary(world);
     });
   }
+  async remove(id: string) {
+    return this.store.exclusive(async () => {
+      const world = this.store.get(id);
+      if (this.store.active()?.id === id)
+        throw new ConflictException(
+          'Switch to another world before deleting the active world',
+        );
+      if (world.original)
+        throw new ConflictException('Original World cannot be deleted');
+      if (!/^[a-f0-9-]{36}$/.test(id))
+        throw new BadRequestException('Invalid world ID');
+      const directory = contained(path.join(this.store.storage, 'worlds'), id);
+      const dataPath = contained(directory, 'minecraft-data');
+      const backups = contained(
+        path.join(this.store.storage, 'world-backups'),
+        id,
+      );
+      if (
+        path.resolve(world.dataPath) !== dataPath ||
+        world.containerName !== `calebs-world-${id}`
+      )
+        throw new ConflictException(
+          'World storage or container does not match its ID',
+        );
+      const container = await this.docker.getContainer(world);
+      if (container) {
+        const info = await container.inspect();
+        if (info.State.Running)
+          throw new ConflictException('A running world cannot be deleted');
+        const mount = info.Mounts?.find((m) => m.Destination === '/data');
+        if (!mount || path.resolve(mount.Source) !== dataPath)
+          throw new ConflictException('World container mount mismatch');
+        await container.remove();
+      }
+      await fs.promises.rm(directory, { recursive: true, force: true });
+      await fs.promises.rm(backups, { recursive: true, force: true });
+      this.store.db.transaction(() => {
+        this.store.db
+          .prepare('DELETE FROM world_backups WHERE world_id=?')
+          .run(id);
+        this.store.db
+          .prepare('DELETE FROM world_revisions WHERE world_id=?')
+          .run(id);
+        this.store.db.prepare('DELETE FROM worlds WHERE id=?').run(id);
+      });
+      return { deletedId: id };
+    });
+  }
   settings(id: string) {
     const world = this.store.get(id);
     const { values, fileExists } = readServerProperties(world.dataPath);

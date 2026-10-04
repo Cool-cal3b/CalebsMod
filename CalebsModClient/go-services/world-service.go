@@ -346,7 +346,7 @@ func WorldRequest(method, endpoint, payload string) (string, error) {
 	if !strings.HasPrefix(endpoint, "/api/worlds") || strings.Contains(endpoint, "..") {
 		return "", fmt.Errorf("invalid world endpoint")
 	}
-	if method != "GET" && method != "POST" && method != "PATCH" {
+	if method != "GET" && method != "POST" && method != "PATCH" && method != "DELETE" {
 		return "", fmt.Errorf("invalid request method")
 	}
 	req, err := http.NewRequest(method, GetServerUrl()+endpoint, strings.NewReader(payload))

@@ -28,6 +28,7 @@ describe('world management preserves existing data', () => {
   let forceStops: jest.Mock;
   let rcon: any;
   let docker: any;
+  let removeContainer: jest.Mock;
   beforeEach(() => {
     root = fs.mkdtempSync(path.join(os.tmpdir(), 'calebs-world-tests-'));
     config = new ConfigService({
@@ -46,6 +47,7 @@ describe('world management preserves existing data', () => {
     failStart = undefined;
     update = jest.fn().mockResolvedValue(undefined);
     forceStops = jest.fn();
+    removeContainer = jest.fn().mockResolvedValue(undefined);
     const container = (world: WorldRecord) => ({
       inspect: async () => ({
         Image: 'sha256:pinned',
@@ -58,6 +60,7 @@ describe('world management preserves existing data', () => {
         },
       }),
       update,
+      remove: removeContainer,
       stop: async () => {
         forceStops(world.id);
         running.delete(world.containerName);
@@ -218,6 +221,113 @@ describe('world management preserves existing data', () => {
         'utf8',
       ),
     ).toBe('inventory and progress');
+    expect(store.active()!.id).toBe(original.id);
+  });
+  it('deletes an archived inactive world and its backups while preserving active data and shared pack files', async () => {
+    const original = await adopt();
+    const copied = await finish(
+      service.create({ name: 'Disposable', sourceId: original.id, copy: true }),
+    );
+    const world = store.get(copied.worldId!);
+    await finish(service.backup(world.id));
+    const backup = service.backups(world.id)[0];
+    const backupPath = service.backupRecord(backup.id).file_path;
+    await service.edit(world.id, { archived: true });
+    await expect(service.remove(world.id)).resolves.toEqual({
+      deletedId: world.id,
+    });
+    expect(removeContainer).toHaveBeenCalledWith();
+    expect(store.list().map((w) => w.id)).toEqual([original.id]);
+    expect(store.active()!.id).toBe(original.id);
+    expect(fs.existsSync(path.dirname(world.dataPath))).toBe(false);
+    expect(fs.existsSync(backupPath)).toBe(false);
+    expect(service.backups(world.id)).toEqual([]);
+    expect(
+      db
+        .prepare('SELECT * FROM world_revisions WHERE world_id=?')
+        .all(world.id),
+    ).toEqual([]);
+    expect(
+      fs.readFileSync(
+        path.join(original.dataPath, 'world', 'level.dat'),
+        'utf8',
+      ),
+    ).toBe('valuable world');
+    for (const file of original.published)
+      expect(fs.existsSync(store.blob(file.sha256))).toBe(true);
+  });
+  it('rejects deletion of active, original, running, and unknown worlds', async () => {
+    const original = await adopt();
+    const world = store.newWorld('Inactive', original.image);
+    store.save(world);
+    store.setActive(world.id);
+    await expect(service.remove(world.id)).rejects.toThrow('active world');
+    await expect(service.remove(original.id)).rejects.toThrow('Original World');
+    store.setActive(original.id);
+    running.add(world.containerName);
+    await expect(service.remove(world.id)).rejects.toThrow('running world');
+    await expect(service.remove('missing')).rejects.toThrow('World not found');
+    expect(removeContainer).not.toHaveBeenCalled();
+    expect(store.list()).toHaveLength(2);
+  });
+  it('deletes a fresh world with no container or backups', async () => {
+    const original = await adopt();
+    const fresh = await finish(service.create({ name: 'Unused' }));
+    docker.getContainer.mockResolvedValue(null);
+    await service.remove(fresh.worldId!);
+    expect(store.list()).toHaveLength(1);
+    expect(store.active()!.id).toBe(original.id);
+    expect(removeContainer).not.toHaveBeenCalled();
+  });
+  it('blocks deletion during maintenance and rejects paths or containers outside the managed world', async () => {
+    const original = await adopt();
+    const world = store.newWorld('Unsafe', original.image);
+    store.save(world);
+    store.acquire();
+    try {
+      await expect(service.remove(world.id)).rejects.toThrow('maintenance');
+    } finally {
+      store.release();
+    }
+    world.dataPath = original.dataPath;
+    store.save(world);
+    await expect(service.remove(world.id)).rejects.toThrow(
+      'storage or container',
+    );
+    world.dataPath = path.join(
+      store.storage,
+      'worlds',
+      world.id,
+      'minecraft-data',
+    );
+    world.containerName = original.containerName;
+    store.save(world);
+    await expect(service.remove(world.id)).rejects.toThrow(
+      'storage or container',
+    );
+    world.containerName = `calebs-world-${world.id}`;
+    store.save(world);
+    docker.getContainer.mockResolvedValue({
+      inspect: async () => ({
+        State: { Running: false },
+        Mounts: [{ Destination: '/data', Source: original.dataPath }],
+      }),
+    });
+    await expect(service.remove(world.id)).rejects.toThrow('mount mismatch');
+    expect(removeContainer).not.toHaveBeenCalled();
+    expect(fs.existsSync(original.dataPath)).toBe(true);
+  });
+  it('keeps the save and metadata when Docker container removal fails', async () => {
+    const original = await adopt();
+    const fresh = await finish(service.create({ name: 'Keep on failure' }));
+    const world = store.get(fresh.worldId!);
+    removeContainer.mockRejectedValue(new Error('Docker unavailable'));
+    await expect(service.remove(world.id)).rejects.toThrow(
+      'Docker unavailable',
+    );
+    expect(store.get(world.id)).toEqual(world);
+    expect(fs.existsSync(world.dataPath)).toBe(true);
+    expect(service.activeInfo().editing).toBe(false);
     expect(store.active()!.id).toBe(original.id);
   });
   it('keeps drafts private, applies only changed paths, and retains shared blob bytes', async () => {
@@ -427,6 +537,9 @@ describe('world management preserves existing data', () => {
       await request(app.getHttpServer()).get('/api/worlds/active').expect(200);
       await request(app.getHttpServer()).get('/api/worlds').expect(403);
       await request(app.getHttpServer()).post('/api/worlds/adopt').expect(403);
+      await request(app.getHttpServer())
+        .delete('/api/worlds/protected')
+        .expect(403);
       await request(app.getHttpServer())
         .post('/api/worlds/recover')
         .expect(403);

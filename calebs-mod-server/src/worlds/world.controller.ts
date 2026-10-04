@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
@@ -132,6 +133,9 @@ export class WorldController {
     @Body() body: { name?: string; archived?: boolean },
   ) {
     return this.worlds.edit(id, body);
+  }
+  @Delete(':id') @UseGuards(JwtAuthGuard) remove(@Param('id') id: string) {
+    return this.worlds.remove(id);
   }
   @Post(':id/switch') @UseGuards(JwtAuthGuard) switch(@Param('id') id: string) {
     return this.worlds.switchWorld(id);

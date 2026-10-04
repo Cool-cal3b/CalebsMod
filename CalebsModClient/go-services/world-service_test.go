@@ -146,3 +146,21 @@ func TestWorldInstancesAndPathIsolation(t *testing.T) {
 		}
 	}
 }
+
+func TestWorldRequestAllowsAuthenticatedDelete(t *testing.T) {
+	previous := http.DefaultTransport
+	t.Cleanup(func() { http.DefaultTransport = previous })
+	endpoint := "/api/worlds/11111111-1111-4111-8111-111111111111"
+	http.DefaultTransport = worldRoundTripper(func(req *http.Request) (*http.Response, error) {
+		if req.Method != http.MethodDelete || req.URL.Path != endpoint {
+			t.Fatalf("unexpected request: %s %s", req.Method, req.URL.Path)
+		}
+		if req.Header.Get("Authorization") != "Bearer "+GetToken() {
+			t.Fatal("admin authorization header is missing")
+		}
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"deletedId":"world"}`))}, nil
+	})
+	if _, err := WorldRequest(http.MethodDelete, endpoint, ""); err != nil {
+		t.Fatal(err)
+	}
+}

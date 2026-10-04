@@ -117,10 +117,16 @@ export default function Worlds({ players }: { players: string[] }) {
     const next = await request<List>("GET", "");
     setList(next);
     setError("");
-    setSelected(
-      (current) => current || next.world?.id || next.worlds[0]?.id || "",
+    setSelected((current) =>
+      next.worlds.some((world) => world.id === current)
+        ? current
+        : next.world?.id || next.worlds[0]?.id || "",
+    );
+    setSource((current) =>
+      next.worlds.some((world) => world.id === current) ? current : "",
     );
     if (next.operations.length) setOperation(next.operations[0]);
+    return next;
   }, []);
   useEffect(() => {
     let cancelled = false;
@@ -198,8 +204,10 @@ export default function Worlds({ players }: { players: string[] }) {
     try {
       const result = (await action()) as Operation | undefined;
       if (result?.id && result.status) setOperation(result);
-      await refresh();
-      if (selected) setDetail(await request<Detail>("GET", "/" + selected));
+      const next = await refresh();
+      if (selected && next.worlds.some((world) => world.id === selected))
+        setDetail(await request<Detail>("GET", "/" + selected));
+      else setDetail(null);
     } catch (e) {
       toast.error("Could not complete action", errorText(e));
     } finally {
@@ -511,6 +519,30 @@ export default function Worlds({ players }: { players: string[] }) {
                         {detail.archived ? "Unarchive" : "Archive"}
                       </button>
                     )}
+                    <button
+                      className="btn btn--danger"
+                      disabled={locked || detail.active || detail.original}
+                      title={
+                        detail.original
+                          ? "Original World is protected"
+                          : detail.active
+                            ? "Switch to another world before deleting this one"
+                            : undefined
+                      }
+                      onClick={() =>
+                        confirm(
+                          `Delete ${detail.name}?`,
+                          `Permanently delete ${detail.name}, including its save, player progress, mods, settings, and all server backups. This cannot be undone. Download a backup first if you want to keep a copy.`,
+                          "Delete world",
+                          async () => {
+                            await request("DELETE", "/" + detail.id);
+                            toast.success("World deleted");
+                          },
+                        )
+                      }
+                    >
+                      Delete world
+                    </button>
                   </div>
                   <form
                     className="world-toolbar"
