@@ -24,6 +24,7 @@ describe('StatusReportService', () => {
       },
       rconConnected: true,
       players: { online: 1, max: 20, players: ['Caleb'] },
+      world: { id: 'original', name: 'Friends Survival' },
     });
     server.getLatestClientVersion.mockImplementation((platform: string) =>
       Promise.resolve(platform === 'windows' ? '1.23' : '1.21'),
@@ -70,6 +71,7 @@ describe('StatusReportService', () => {
     expect(report.schemaVersion).toBe(1);
     expect(report.minecraft).toMatchObject({
       running: true,
+      worldName: 'Friends Survival',
       rconConnected: true,
       playerDataAvailable: true,
       playersOnline: 1,
@@ -92,6 +94,31 @@ describe('StatusReportService', () => {
     });
   });
 
+  it('reports the selected world after switching or renaming, even when stopped', async () => {
+    const reporter = service();
+    await reporter.buildReport();
+    server.getStatus.mockResolvedValue({
+      dockerStatus: { exists: true, running: false, status: 'exited' },
+      rconConnected: false,
+      players: { online: 0, max: 20, players: [] },
+      world: { id: 'creative', name: 'Creative & Building' },
+    });
+
+    const report = await reporter.buildReport();
+
+    expect(report.minecraft.worldName).toBe('Creative & Building');
+    expect(report.minecraft.running).toBe(false);
+  });
+
+  it('names the legacy save Original World before adoption', async () => {
+    const status = await server.getStatus();
+    server.getStatus.mockResolvedValue({ ...status, world: null });
+
+    expect((await service().buildReport()).minecraft.worldName).toBe(
+      'Original World',
+    );
+  });
+
   it('sends the secret in a header and never overlaps reports', async () => {
     let resolveFetch!: (value: Response) => void;
     const fetchMock = jest.spyOn(global, 'fetch').mockImplementation(
@@ -108,6 +135,9 @@ describe('StatusReportService', () => {
     await second;
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const options = fetchMock.mock.calls[0][1] as RequestInit;
+    expect(JSON.parse(options.body as string).minecraft.worldName).toBe(
+      'Friends Survival',
+    );
     expect(
       (options.headers as Record<string, string>)['X-CalebsMod-Status-Secret'],
     ).toBe('status-key');

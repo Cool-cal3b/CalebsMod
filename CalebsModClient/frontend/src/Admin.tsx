@@ -22,7 +22,7 @@ import {
   StopIcon,
   SyncIcon,
   GlobeIcon,
-  ServerIcon,
+  UsersIcon,
 } from "./components/Icons";
 import Worlds from "./Worlds";
 
@@ -89,13 +89,26 @@ export default function Admin() {
     setBusy(true);
     try {
       await action();
-      toast.success("Server action started", "Follow its progress in Worlds.");
+      toast.success(
+        "Server action started",
+        "Progress appears above the world list.",
+      );
     } catch (e) {
       toast.error("Server action failed", errorText(e));
     } finally {
       setBusy(false);
     }
   };
+  const running = !!status?.dockerStatus.running;
+  const maintenance = !!status?.maintenance;
+  const players = status?.players.players || [];
+  const state = !status
+    ? { label: "Checking", dot: "dot", text: "t-off" }
+    : maintenance
+      ? { label: "Maintenance", dot: "dot dot--warn", text: "t-warn" }
+      : running
+        ? { label: "Running", dot: "dot dot--ok dot--live", text: "t-ok" }
+        : { label: "Stopped", dot: "dot dot--off", text: "t-off" };
   return (
     <div className="page">
       <TopBar
@@ -113,92 +126,84 @@ export default function Admin() {
           ) : undefined
         }
       />
-      <div className="page__body">
-        {!loggedIn ? (
-          <section className="card">
-            <div className="card__head">
-              <KeyIcon />
+      {!loggedIn ? (
+        <div className="page__body">
+          <form
+            className="card auth-card"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void login();
+            }}
+          >
+            <div className="auth-card__head">
+              <span className="auth-card__icon">
+                <KeyIcon />
+              </span>
               <h1>Admin sign in</h1>
+              <p className="muted">
+                Enter the admin secret to manage the server and its worlds.
+              </p>
             </div>
-            <form
-              className="card__body world-form"
-              onSubmit={(e) => {
-                e.preventDefault();
-                void login();
-              }}
+            <label className="field">
+              <span className="field__label">Admin secret</span>
+              <input
+                className="input"
+                type="password"
+                value={secret}
+                autoFocus
+                autoComplete="current-password"
+                placeholder={savedKey ? "Saved secret will be used" : ""}
+                onChange={(e) => setSecret(e.target.value)}
+              />
+            </label>
+            {error && (
+              <div className="notice notice--danger" role="alert">
+                {error}
+              </div>
+            )}
+            <button
+              className="btn btn--primary btn--block"
+              disabled={busy || (!secret.trim() && !savedKey)}
             >
-              <label>
-                Admin secret
-                <input
-                  type="password"
-                  value={secret}
-                  autoComplete="current-password"
-                  onChange={(e) => setSecret(e.target.value)}
-                />
-              </label>
-              {error && (
-                <p className="t-warn" role="alert">
-                  {error}
-                </p>
-              )}
-              <button
-                className="btn btn--primary"
-                disabled={busy || (!secret.trim() && !savedKey)}
-              >
-                {busy ? "Signing in�" : "Sign in"}
-              </button>
-            </form>
-          </section>
-        ) : (
-          <>
-            <section className="card">
-              <div className="card__head">
-                <ServerIcon />
-                <h2>{status?.world?.name || "Original World"}</h2>
-                <span className="spacer" />
-                <span>
-                  {status?.maintenance
-                    ? "Maintenance"
-                    : status?.dockerStatus.running
-                      ? "Running"
-                      : "Stopped"}
+              {busy && <span className="spinner" />}
+              {busy ? "Signing in…" : "Sign in"}
+            </button>
+          </form>
+        </div>
+      ) : (
+        <div className="page__body admin-body">
+          <section className="card server-panel" aria-label="Server status">
+            <div className="server-panel__info">
+              <span className="eyebrow">Minecraft server</span>
+              <div className="server-panel__title">
+                <h1>{status?.world?.name || "No active world"}</h1>
+                <span className={`server-panel__state ${state.text}`}>
+                  <span className={state.dot} />
+                  {state.label}
                 </span>
               </div>
-              <div className="card__body">
-                <p>
-                  {status?.players.online ?? 0} players online
-                  {status?.players.players?.length
-                    ? `: ${status.players.players.join(", ")}`
-                    : ""}
-                </p>
-                <div className="world-toolbar">
+              <div className="server-panel__players">
+                <UsersIcon />
+                {players.length ? (
+                  <>
+                    <span>{players.length} online</span>
+                    {players.map((p) => (
+                      <span className="badge" key={p}>
+                        {p}
+                      </span>
+                    ))}
+                  </>
+                ) : (
+                  <span>No players online</span>
+                )}
+              </div>
+            </div>
+            <div className="server-panel__actions">
+              {running ? (
+                <>
                   <button
                     className="btn"
-                    disabled={
-                      busy ||
-                      status?.maintenance ||
-                      status?.dockerStatus.running
-                    }
-                    onClick={() => void control(StartServer)}
-                  >
-                    <PowerIcon />
-                    Start
-                  </button>
-                  <button
-                    className="btn"
-                    disabled={
-                      busy ||
-                      status?.maintenance ||
-                      !status?.dockerStatus.running
-                    }
-                    onClick={() => void control(StopServer)}
-                  >
-                    <StopIcon />
-                    Save and stop
-                  </button>
-                  <button
-                    className="btn"
-                    disabled={busy || status?.maintenance}
+                    disabled={busy || maintenance}
                     onClick={() => void control(RestartServer)}
                   >
                     <SyncIcon />
@@ -206,19 +211,37 @@ export default function Admin() {
                   </button>
                   <button
                     className="btn"
-                    disabled={busy || status?.maintenance}
-                    onClick={() => void control(UpdateDns)}
+                    disabled={busy || maintenance}
+                    onClick={() => void control(StopServer)}
                   >
-                    <GlobeIcon />
-                    Update DNS
+                    <StopIcon />
+                    Save and stop
                   </button>
-                </div>
-              </div>
-            </section>
-            <Worlds players={status?.players.players || []} />
-          </>
-        )}
-      </div>
+                </>
+              ) : (
+                <button
+                  className="btn btn--primary"
+                  disabled={busy || maintenance || !status}
+                  onClick={() => void control(StartServer)}
+                >
+                  <PowerIcon />
+                  Start server
+                </button>
+              )}
+              <button
+                className="btn btn--ghost"
+                disabled={busy || maintenance}
+                title="Point the server address at this PC's current public IP"
+                onClick={() => void control(UpdateDns)}
+              >
+                <GlobeIcon />
+                Update DNS
+              </button>
+            </div>
+          </section>
+          <Worlds players={players} />
+        </div>
+      )}
       <ConfirmModal
         isOpen={clear}
         title="Clear the saved secret?"

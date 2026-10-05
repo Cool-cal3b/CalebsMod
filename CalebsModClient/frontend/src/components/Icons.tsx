@@ -172,3 +172,14 @@ export const SettingsIcon = ({ className = 'btn__icon' }: IconProps) => (
 		<path d="M12 2.8v2.4M12 18.8v2.4M21.2 12h-2.4M5.2 12H2.8M18.5 5.5l-1.7 1.7M7.2 16.8l-1.7 1.7M18.5 18.5l-1.7-1.7M7.2 7.2 5.5 5.5" />
 	</svg>
 );
+
+export const PlusIcon = ({ className = 'btn__icon' }: IconProps) => (
+	<svg {...base} className={className}><path d="M12 5v14M5 12h14" /></svg>
+);
+
+export const ArchiveIcon = ({ className = 'btn__icon' }: IconProps) => (
+	<svg {...base} className={className}>
+		<rect x="3" y="4" width="18" height="4.5" rx="1.2" />
+		<path d="M5 8.5V19a1.5 1.5 0 0 0 1.5 1.5h11A1.5 1.5 0 0 0 19 19V8.5" /><path d="M10 12.5h4" />
+	</svg>
+);

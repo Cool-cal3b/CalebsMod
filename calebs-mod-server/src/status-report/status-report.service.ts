@@ -15,6 +15,7 @@ export interface CalebsModStatusReport {
     containerExists: boolean;
     running: boolean;
     state: string;
+    worldName: string;
     startedAtUtc?: string;
     finishedAtUtc?: string;
     rconConnected: boolean;
@@ -141,6 +142,7 @@ export class StatusReportService implements OnModuleInit, OnModuleDestroy {
         containerExists: docker.exists,
         running: docker.running,
         state: docker.status,
+        worldName: status.world?.name ?? 'Original World',
         ...(this.validDate(docker.startedAt)
           ? { startedAtUtc: new Date(docker.startedAt).toISOString() }
           : {}),
