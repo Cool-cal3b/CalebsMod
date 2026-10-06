@@ -212,7 +212,15 @@ export class DockerService implements OnModuleInit {
   }
 
   async getServerStatus(): Promise<DockerServerStatus> {
-    const container = await this.getContainer();
+    // World operations need getContainer to throw when Docker is unreachable,
+    // but a status check should report that instead of failing.
+    let container: Dockerode.Container | null;
+    try {
+      container = await this.getContainer();
+    } catch (error) {
+      console.error('Docker is unavailable:', error);
+      return { exists: false, running: false, status: 'docker_unavailable' };
+    }
 
     if (!container) {
       return {

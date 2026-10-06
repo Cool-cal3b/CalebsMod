@@ -2,12 +2,13 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  OnApplicationBootstrap,
 } from '@nestjs/common';
 import * as fs from 'fs';
 import * as path from 'path';
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import * as yauzl from 'yauzl';
-import { WorldStore } from './world-store';
+import { LOCK_STALE_MS, WorldStore } from './world-store';
 import type { WorldFile, WorldOperation, WorldRecord } from './world-store';
 import { DockerService } from '../docker/docker.service';
 import { RconService } from '../rcon/rcon.service';
@@ -45,21 +46,75 @@ const PACK_ROOTS = [
   'globalresources',
   'patchouli_books',
 ];
+const ROOT_FILES = ['options.txt', 'servers.dat', 'server.dat'];
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/** Mod IDs declared in a JAR's [[mods]] sections. Dependency blocks also use
+ * modId, so only keys inside [[mods]] count. */
+function parseModIds(toml: string): string[] {
+  const ids: string[] = [];
+  let inMods = false;
+  for (const line of toml.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith('[')) inMods = trimmed === '[[mods]]';
+    const match = inMods && trimmed.match(/^modId\s*=\s*["']([^"']+)["']/);
+    if (match) ids.push(match[1].toLowerCase());
+  }
+  return ids;
+}
+
+/**
+ * Where a modpack ZIP entry installs, or undefined if it is not pack content.
+ * Matching is by whole path segment so folders that merely contain these
+ * words (config/somemod/overrides/, config/mods/) stay where they are.
+ */
+export function packDestination(
+  name: string,
+): { relative: string; clientOnly: boolean } | undefined {
+  let parts = name.replace(/\\/g, '/').split('/');
+  const manual = parts.indexOf('.for-manual-install');
+  const clientOnly = manual >= 0;
+  if (clientOnly) parts = parts.slice(manual + 1);
+  else {
+    // CurseForge exports keep overrides/ at the root, sometimes inside one
+    // wrapper folder.
+    const overrides = parts.indexOf('overrides');
+    if (overrides === 0 || overrides === 1) parts = parts.slice(overrides + 1);
+  }
+  const managed = (p: string[]) =>
+    (p.length > 1 && PACK_ROOTS.includes(p[0])) ||
+    (p.length === 1 && ROOT_FILES.includes(p[0]));
+  // Pack ZIPs often nest everything under one top-level folder.
+  if (!managed(parts) && managed(parts.slice(1))) parts = parts.slice(1);
+  if (!managed(parts)) return undefined;
+  return { relative: safeRelative(parts.join('/')), clientOnly };
+}
+
 @Injectable()
-export class WorldService {
+export class WorldService implements OnApplicationBootstrap {
+  // Blobs are content-addressed, so a hash's mod IDs never change.
+  private modIdCache = new Map<string, string[]>();
+
   constructor(
     readonly store: WorldStore,
     private docker: DockerService,
     private rcon: RconService,
   ) {}
 
-  activeInfo() {
+  /** What players' clients see. `maintenance` blocks syncing and launching. */
+  clientInfo() {
     const world = this.store.active();
     return {
       world: world ? this.summary(world) : null,
-      maintenance: this.store.pending().length > 0,
+      maintenance: this.store.clientBlocked(),
+    };
+  }
+  activeInfo() {
+    return {
+      ...this.clientInfo(),
+      // Any operation at all locks the admin controls, even ones players
+      // never notice, such as backing up an inactive world.
+      operationPending: this.store.pending().length > 0,
       editing: fs.existsSync(
         path.join(this.store.storage, 'world-operation.lock'),
       ),
@@ -90,7 +145,22 @@ export class WorldService {
       switchingEnabled: this.switchingEnabled(),
       worlds: this.store.list().map((w) => this.summary(w)),
       operations: this.store.pending(),
+      automaticBackupsKept: this.store.automaticBackupsKept(),
+      storage: this.storageUsage(),
     };
+  }
+  private storageUsage() {
+    const { total } = this.store.db
+      .prepare('SELECT COALESCE(SUM(size),0) AS total FROM world_backups')
+      .get() as { total: number };
+    let freeBytes: number | null = null;
+    try {
+      const stats = fs.statfsSync(this.store.storage);
+      freeBytes = stats.bavail * stats.bsize;
+    } catch {
+      /* Free space is informational only. */
+    }
+    return { backupBytes: total, freeBytes };
   }
   switchingEnabled() {
     return (
@@ -121,15 +191,99 @@ export class WorldService {
       return { enabled: true };
     });
   }
-  detail(id: string) {
+  async detail(id: string) {
     const world = this.store.get(id);
     return {
       ...this.summary(world),
       published: world.published,
       draft: world.draft,
+      duplicateMods: await this.duplicateMods(world.draft),
       backups: this.backups(id),
       settings: this.settings(id),
     };
+  }
+  private async modIds(hash: string): Promise<string[]> {
+    const cached = this.modIdCache.get(hash);
+    if (cached) return cached;
+    let ids: string[] = [];
+    try {
+      const zip = await new Promise<yauzl.ZipFile>((resolve, reject) =>
+        yauzl.open(
+          this.store.blob(hash),
+          { lazyEntries: true, autoClose: false },
+          (error, zip) => (error ? reject(error) : resolve(zip!)),
+        ),
+      );
+      try {
+        const toml = await new Promise<string | undefined>(
+          (resolve, reject) => {
+            zip.on('error', reject);
+            zip.on('end', () => resolve(undefined));
+            zip.on('entry', (entry: yauzl.Entry) => {
+              if (
+                entry.fileName !== 'META-INF/mods.toml' ||
+                entry.uncompressedSize > 1024 ** 2
+              ) {
+                zip.readEntry();
+                return;
+              }
+              zip.openReadStream(entry, (error, stream) => {
+                if (error) return reject(error);
+                const chunks: Buffer[] = [];
+                stream!.on('data', (chunk: Buffer) => chunks.push(chunk));
+                stream!.on('error', reject);
+                stream!.on('end', () =>
+                  resolve(Buffer.concat(chunks).toString('utf8')),
+                );
+              });
+            });
+            zip.readEntry();
+          },
+        );
+        ids = toml ? parseModIds(toml) : [];
+      } finally {
+        zip.close();
+      }
+    } catch {
+      /* Not a readable JAR; it cannot be compared, so it is not reported. */
+    }
+    this.modIdCache.set(hash, ids);
+    return ids;
+  }
+  /**
+   * Mods that would load twice on the same side, typically an old and a new
+   * version whose file names differ. Forge refuses to start with duplicates.
+   */
+  async duplicateMods(files: WorldFile[]) {
+    const sides: { side: string; include: (f: WorldFile) => boolean }[] = [
+      { side: 'server', include: (f) => !f.clientOnly },
+      { side: 'client', include: (f) => !f.serverOnly },
+    ];
+    const owners = new Map<string, Set<string>>();
+    for (const { side, include } of sides) {
+      const byId = new Map<string, string[]>();
+      for (const file of files) {
+        if (
+          !file.relativePath.startsWith('mods/') ||
+          !file.relativePath.toLowerCase().endsWith('.jar') ||
+          !include(file)
+        )
+          continue;
+        const hash = side === 'server' ? file.serverSha256 || file.sha256 : file.sha256;
+        for (const id of new Set(await this.modIds(hash)))
+          byId.set(id, [...(byId.get(id) || []), file.relativePath]);
+      }
+      for (const [id, paths] of byId)
+        if (paths.length > 1) {
+          const set = owners.get(id) || new Set<string>();
+          paths.forEach((p) => set.add(p));
+          owners.set(id, set);
+        }
+    }
+    return [...owners].map(([modId, paths]) => ({
+      modId,
+      files: [...paths].sort(),
+    }));
   }
   backups(id: string) {
     return this.store.db
@@ -353,22 +507,59 @@ export class WorldService {
       throw new Error('Minecraft refused to save');
     await container.update({ RestartPolicy: { Name: 'no' } });
     this.phase(op, 'stopping');
+    const log = path.join(world.dataPath, 'logs', 'latest.log');
+    const logOffset = fs.existsSync(log) ? fs.statSync(log).size : 0;
     // Do not call Docker stop with a force-kill deadline. Minecraft exits itself.
     await this.rcon.stop().catch(() => undefined);
     const deadline = Date.now() + 120000;
     while (Date.now() < deadline) {
       const info = await container.inspect();
       if (!info.State.Running) {
-        if (info.State.OOMKilled || info.State.ExitCode !== 0)
+        // Some mods throw while shutting down after the save has finished,
+        // which leaves a non-zero exit code on an intact world.
+        if (
+          info.State.OOMKilled ||
+          (info.State.ExitCode !== 0 && !this.savedSince(log, logOffset))
+        )
           throw new Error('Minecraft did not shut down cleanly');
         await this.rcon.resetConnection();
         return;
       }
       await wait(1000);
     }
+    // A mod thread can keep the JVM alive after the final save. Once the log
+    // confirms every dimension was saved, stopping the container loses nothing.
+    if (this.savedSince(log, logOffset)) {
+      this.phase(op, 'stopping_hung_shutdown');
+      await container.stop({ t: 30 });
+      if (!(await container.inspect()).State.Running) {
+        await this.rcon.resetConnection();
+        return;
+      }
+    }
     throw new Error(
       'Minecraft shutdown timed out; no backup or file changes were performed',
     );
+  }
+  /** Whether the log shows a completed final save after `offset`. */
+  private savedSince(log: string, offset: number) {
+    try {
+      const size = fs.statSync(log).size;
+      if (size <= offset) return false;
+      const handle = fs.openSync(log, 'r');
+      try {
+        const length = Math.min(size - offset, 4 * 1024 ** 2);
+        const buffer = Buffer.alloc(length);
+        fs.readSync(handle, buffer, 0, length, size - length);
+        return /ThreadedAnvilChunkStorage: All dimensions are saved/.test(
+          buffer.toString('utf8'),
+        );
+      } finally {
+        fs.closeSync(handle);
+      }
+    } catch {
+      return false;
+    }
   }
   private async startReady(world: WorldRecord, op: WorldOperation) {
     this.phase(op, 'starting');
@@ -475,13 +666,19 @@ export class WorldService {
       throw new ConflictException(
         'Release the updated Windows and macOS clients, then enable switching in Admin > Worlds',
       );
-    const target = this.store.get(id);
-    const source = this.store.active();
-    if (!source) throw new ConflictException('Adopt Original World first');
-    if (source.id === id)
-      throw new BadRequestException('This world is already active');
-    this.validateWorld(target);
+    const check = () => {
+      const target = this.store.get(id);
+      const source = this.store.active();
+      if (!source) throw new ConflictException('Adopt Original World first');
+      if (source.id === id)
+        throw new BadRequestException('This world is already active');
+      this.validateWorld(target);
+      return { target, source };
+    };
+    check();
     return this.begin('switch', id, async (op) => {
+      // Re-read under the lock so an edit that landed before it is not lost.
+      const { target, source } = check();
       op.sourceId = source.id;
       op.wasRunning =
         !!(await this.docker.getContainer(source)) &&
@@ -493,7 +690,11 @@ export class WorldService {
       this.phase(op, 'backup');
       await this.makeBackup(source, 'automatic');
       this.phase(op, 'backup_incoming_world');
-      op.targetBackup = (await this.makeBackup(target, 'automatic')).id;
+      // An inactive world is usually unchanged since its last backup (taken
+      // when it was switched away from); reuse that instead of a new full ZIP.
+      op.targetBackup =
+        this.unchangedBackup(target) ??
+        (await this.makeBackup(target, 'automatic')).id;
       this.store.saveOperation(op);
       this.applyAccess(target);
       await this.startReady(target, op);
@@ -554,6 +755,7 @@ export class WorldService {
     const id = randomUUID();
     const dir = path.join(this.store.storage, 'world-backups', world.id);
     fs.mkdirSync(dir, { recursive: true });
+    const fingerprint = this.fingerprint(world);
     const sources: ArchiveSource[] = [];
     for (const relative of listFiles(world.dataPath)) {
       if (!recovery && ['.rcon-cli.env', '.rcon-cli.yaml'].includes(relative))
@@ -607,9 +809,18 @@ export class WorldService {
       );
       this.store.db
         .prepare(
-          'INSERT INTO world_backups(id,world_id,kind,created_at,file_path,sha256,size) VALUES(?,?,?,?,?,?,?)',
+          'INSERT INTO world_backups(id,world_id,kind,created_at,file_path,sha256,size,fingerprint) VALUES(?,?,?,?,?,?,?,?)',
         )
-        .run(id, world.id, kind, Date.now(), file, result.sha256, result.size);
+        .run(
+          id,
+          world.id,
+          kind,
+          Date.now(),
+          file,
+          result.sha256,
+          result.size,
+          fingerprint,
+        );
       return {
         id,
         worldId: world.id,
@@ -621,7 +832,37 @@ export class WorldService {
       if (fs.existsSync(dbSnapshot)) fs.unlinkSync(dbSnapshot);
     }
   }
+  /** Cheap identity of a stopped world's contents: every path, size, and
+   * modification time, plus the publication a rollback would restore. */
+  private fingerprint(world: WorldRecord) {
+    const hash = createHash('sha256');
+    hash.update(
+      JSON.stringify([world.revision, world.initialized, world.published]),
+    );
+    for (const relative of listFiles(world.dataPath)) {
+      const stat = fs.statSync(contained(world.dataPath, relative));
+      hash.update(`\n${relative}\0${stat.size}\0${stat.mtimeMs}`);
+    }
+    return hash.digest('hex');
+  }
+  private unchangedBackup(world: WorldRecord): string | undefined {
+    const latest = this.store.db
+      .prepare(
+        'SELECT id,file_path,fingerprint FROM world_backups WHERE world_id=? ORDER BY created_at DESC LIMIT 1',
+      )
+      .get(world.id) as
+      | { id: string; file_path: string; fingerprint: string | null }
+      | undefined;
+    if (
+      latest?.fingerprint &&
+      fs.existsSync(latest.file_path) &&
+      latest.fingerprint === this.fingerprint(world)
+    )
+      return latest.id;
+    return undefined;
+  }
   private pruneBackups() {
+    const keep = this.store.automaticBackupsKept();
     try {
       const worlds = this.store.db
         .prepare('SELECT DISTINCT world_id FROM world_backups')
@@ -629,9 +870,9 @@ export class WorldService {
       for (const { world_id } of worlds) {
         const old = this.store.db
           .prepare(
-            "SELECT id,file_path FROM world_backups WHERE world_id=? AND kind='automatic' ORDER BY created_at DESC LIMIT -1 OFFSET 10",
+            "SELECT id,file_path FROM world_backups WHERE world_id=? AND kind='automatic' ORDER BY created_at DESC LIMIT -1 OFFSET ?",
           )
-          .all(world_id) as { id: string; file_path: string }[];
+          .all(world_id, keep) as { id: string; file_path: string }[];
         for (const item of old) {
           const root = path.join(this.store.storage, 'world-backups');
           const relative = path
@@ -872,8 +1113,12 @@ export class WorldService {
         path.join(this.store.storage, 'world-backups'),
         id,
       );
+      // Windows paths are case-insensitive; compare them the way adoption and
+      // startup do.
+      const same = (a: string, b: string) =>
+        path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase();
       if (
-        path.resolve(world.dataPath) !== dataPath ||
+        !same(world.dataPath, dataPath) ||
         world.containerName !== `calebs-world-${id}`
       )
         throw new ConflictException(
@@ -885,7 +1130,7 @@ export class WorldService {
         if (info.State.Running)
           throw new ConflictException('A running world cannot be deleted');
         const mount = info.Mounts?.find((m) => m.Destination === '/data');
-        if (!mount || path.resolve(mount.Source) !== dataPath)
+        if (!mount || !same(mount.Source, dataPath))
           throw new ConflictException('World container mount mismatch');
         await container.remove();
       }
@@ -979,13 +1224,19 @@ export class WorldService {
       return this.detail(id);
     });
   }
-  async uploadDraft(id: string, file: string) {
+  async uploadDraft(
+    id: string,
+    file: string,
+    uploadMode: 'merge' | 'replace' = 'merge',
+  ) {
     return this.store.exclusive(async () => {
       try {
         const world = this.store.get(id);
         const draft = new Map(
           world.draft.map((f) => [f.relativePath.toLowerCase(), f]),
         );
+        const serverCopiesReplaced: string[] = [];
+        let changed = 0;
         const zip = await new Promise<yauzl.ZipFile>((resolve, reject) =>
           yauzl.open(
             file,
@@ -1013,36 +1264,18 @@ export class WorldService {
                   entry.isEncrypted()
                 )
                   throw new Error('Unsupported pack entry');
-                const directory = entry.fileName.endsWith('/');
-                const original = safeRelative(
-                  directory ? entry.fileName.slice(0, -1) : entry.fileName,
-                );
-                if (directory) {
+                // Unmanaged entries are skipped before validation, so an odd
+                // file name elsewhere in the ZIP cannot abort the upload.
+                const destination = entry.fileName.endsWith('/')
+                  ? undefined
+                  : packDestination(entry.fileName);
+                if (!destination) {
                   zip.readEntry();
                   return;
                 }
                 if (entry.uncompressedSize > 256 * 1024 ** 2)
                   throw new Error('Modpack file is too large');
-                let relative = original;
-                if (relative.includes('overrides/'))
-                  relative = relative.split('overrides/')[1];
-                const clientOnly = relative.includes('.for-manual-install/');
-                if (clientOnly)
-                  relative = relative.split('.for-manual-install/')[1];
-                const match = relative.match(
-                  /^[^/]+\/(mods|config|defaultconfigs|resourcepacks|shaderpacks|panoramas|thingpacks)\//,
-                );
-                if (match) relative = relative.slice(relative.indexOf('/') + 1);
-                if (
-                  !PACK_ROOTS.some((root) => relative.startsWith(root + '/')) &&
-                  !['options.txt', 'servers.dat', 'server.dat'].includes(
-                    relative,
-                  )
-                ) {
-                  zip.readEntry();
-                  return;
-                }
-                safeRelative(relative);
+                const { relative, clientOnly } = destination;
                 if (seen.has(relative.toLowerCase()))
                   throw new Error(`Duplicate pack path: ${relative}`);
                 seen.add(relative.toLowerCase());
@@ -1062,7 +1295,22 @@ export class WorldService {
                 }
                 const data = Buffer.concat(chunks);
                 const hash = this.store.put(data);
-                draft.set(relative.toLowerCase(), {
+                const key = relative.toLowerCase();
+                const existing = draft.get(key);
+                // An unchanged file keeps its entry as is: its side flags and
+                // any server-specific copy stay exactly as the admin left them.
+                if (existing?.sha256 === hash) {
+                  zip.readEntry();
+                  return;
+                }
+                if (
+                  existing?.serverSha256 &&
+                  existing.serverSha256 !== existing.sha256
+                )
+                  serverCopiesReplaced.push(existing.relativePath);
+                const markedClientOnly =
+                  clientOnly || ROOT_FILES.includes(relative);
+                draft.set(key, {
                   sha256: hash,
                   relativePath: relative,
                   fileName: path.basename(relative),
@@ -1070,14 +1318,11 @@ export class WorldService {
                   fileType: relative.startsWith('mods/')
                     ? 'mod'
                     : relative.split('/')[0],
-                  serverOnly: false,
-                  clientOnly:
-                    clientOnly ||
-                    ['options.txt', 'servers.dat', 'server.dat'].includes(
-                      relative,
-                    ),
+                  serverOnly: !markedClientOnly && !!existing?.serverOnly,
+                  clientOnly: markedClientOnly || !!existing?.clientOnly,
                   required: true,
                 });
+                changed++;
                 zip.readEntry();
               })().catch(reject);
             });
@@ -1086,10 +1331,26 @@ export class WorldService {
         } finally {
           zip.close();
         }
+        // Replace mode mirrors the ZIP: anything it no longer contains leaves
+        // the draft, so renamed mod versions do not pile up as duplicates.
+        // Server-only files never come from a client pack, so they stay.
+        const removed: string[] = [];
+        if (uploadMode === 'replace')
+          for (const [key, entry] of draft)
+            if (!seen.has(key) && !entry.serverOnly) {
+              draft.delete(key);
+              removed.push(entry.relativePath);
+            }
         world.draft = [...draft.values()];
         this.store.validatePack(world.draft);
         this.store.save(world);
-        return { filesProcessed: seen.size };
+        return {
+          filesProcessed: seen.size,
+          changed,
+          removed,
+          serverCopiesReplaced,
+          duplicateMods: await this.duplicateMods(world.draft),
+        };
       } finally {
         if (fs.existsSync(file)) fs.unlinkSync(file);
       }
@@ -1113,11 +1374,24 @@ export class WorldService {
       }));
   }
   apply(id: string) {
-    const world = this.store.get(id);
-    if (!this.changes(id).length)
-      throw new BadRequestException('There are no pending pack changes');
-    this.store.validatePack(world.draft);
+    const check = () => {
+      const world = this.store.get(id);
+      if (!this.changes(id).length)
+        throw new BadRequestException('There are no pending pack changes');
+      this.store.validatePack(world.draft);
+      return world;
+    };
+    check();
     return this.begin('apply', id, async (op) => {
+      // Re-read under the lock so a draft edit that landed before it is used.
+      const world = check();
+      const duplicates = await this.duplicateMods(world.draft);
+      if (duplicates.length)
+        throw new Error(
+          `Remove duplicate mods before applying: ${duplicates
+            .map((d) => `${d.modId} (${d.files.join(', ')})`)
+            .join('; ')}`,
+        );
       op.sourceId = id;
       op.wasRunning = !!(
         await (await this.docker.getContainer(world))?.inspect()
@@ -1135,6 +1409,67 @@ export class WorldService {
       this.phase(op, 'publishing');
       this.store.publish(next, next.published);
       return this.summary(next);
+    });
+  }
+  /**
+   * Starts a world over: the map, player inventories, and advancements go,
+   * while the modpack, server settings, and per-world mod configs
+   * (world/serverconfig) stay. Original World can never be reset.
+   */
+  resetProgress(id: string, body: { confirmName?: string; seed?: string }) {
+    const check = () => {
+      const world = this.store.get(id);
+      if (world.original)
+        throw new ConflictException(
+          'Original World is protected and cannot be reset',
+        );
+      if (world.archived) throw new ConflictException('Unarchive this world first');
+      if (body.confirmName !== world.name)
+        throw new BadRequestException(
+          'Type the world name exactly to confirm the reset',
+        );
+      return world;
+    };
+    if (
+      body.seed !== undefined &&
+      (typeof body.seed !== 'string' ||
+        body.seed.length > 128 ||
+        /[\r\n]/.test(body.seed))
+    )
+      throw new BadRequestException('Invalid seed');
+    check();
+    return this.begin('reset', id, async (op) => {
+      const world = check();
+      op.sourceId = id;
+      op.wasRunning = !!(
+        await (await this.docker.getContainer(world))?.inspect()
+      )?.State.Running;
+      this.store.saveOperation(op);
+      await this.stopClean(world, op, true);
+      this.phase(op, 'backup');
+      op.rollbackBackup = (await this.makeBackup(world, 'automatic')).id;
+      this.store.saveOperation(op);
+      this.phase(op, 'wiping_progress');
+      const save = contained(world.dataPath, 'world');
+      if (fs.existsSync(save))
+        for (const entry of fs.readdirSync(save, { withFileTypes: true })) {
+          if (entry.name.toLowerCase() === 'serverconfig') continue;
+          const target = path.join(save, entry.name);
+          // rmSync removes a link itself, never what it points to.
+          fs.rmSync(target, { recursive: !entry.isSymbolicLink(), force: true });
+        }
+      // A blank seed lets Minecraft pick a new random one.
+      writeServerProperties({ 'level-seed': body.seed ?? '' }, world.dataPath);
+      world.initialized = false;
+      this.store.save(world);
+      if (op.wasRunning) {
+        await this.startReady(world, op);
+        this.store.save(world);
+      }
+      this.store.db.logAudit('reset_world', 'world', world.id, undefined, {
+        backupId: op.rollbackBackup,
+      });
+      return this.summary(world);
     });
   }
   private installChanges(
@@ -1247,11 +1582,16 @@ export class WorldService {
       await this.stopForRollback(target, op, op.targetBackup);
       if (op.targetBackup) await this.restoreData(target, op.targetBackup, op);
     }
-    if (op.kind === 'apply' && op.rollbackBackup) {
+    if (['apply', 'reset'].includes(op.kind) && op.rollbackBackup) {
       await this.stopForRollback(source, op, op.rollbackBackup);
       await this.restoreData(source, op.rollbackBackup, op);
     }
-    if (this.store.list().some((w) => w.id === source.id))
+    // Only these operations change the selection. Backups, applies, and
+    // resets of an inactive world must not make that world active.
+    if (
+      ['switch', 'adopt'].includes(op.kind) &&
+      this.store.list().some((w) => w.id === source.id)
+    )
       this.store.setActive(source.id);
     if (op.wasRunning) await this.startReady(source, op);
   }
@@ -1269,9 +1609,11 @@ export class WorldService {
     }
     return this.begin('recover', undefined, async (op) => {
       try {
+        this.cleanupScratch();
         for (const item of pending) {
           this.phase(op, `recovering_${item.kind}`);
           await this.rollback(item);
+          this.removeUnregisteredWorld(item);
           item.status = 'failed';
           item.phase = 'rolled_back';
           item.error ||= 'Operation interrupted by server restart';
@@ -1286,5 +1628,66 @@ export class WorldService {
         throw error;
       }
     });
+  }
+  /**
+   * Removes leftovers of interrupted work: extraction staging, unfinished
+   * backup ZIPs, and abandoned uploads. Runs only while holding the lock, so
+   * nothing it deletes can still be in use, except a fresh upload.
+   */
+  private cleanupScratch() {
+    const staging = path.join(this.store.storage, 'staging');
+    if (fs.existsSync(staging))
+      for (const name of fs.readdirSync(staging))
+        this.removeStaging(path.join(staging, name));
+    const backups = path.join(this.store.storage, 'world-backups');
+    if (fs.existsSync(backups))
+      for (const dir of fs.readdirSync(backups, { withFileTypes: true })) {
+        if (!dir.isDirectory()) continue;
+        for (const name of fs.readdirSync(path.join(backups, dir.name)))
+          if (name.endsWith('.partial'))
+            fs.rmSync(contained(backups, `${dir.name}/${name}`), {
+              force: true,
+            });
+      }
+    const uploads = path.join(this.store.storage, 'world-uploads');
+    if (fs.existsSync(uploads))
+      for (const name of fs.readdirSync(uploads)) {
+        const file = contained(uploads, name);
+        if (Date.now() - fs.statSync(file).mtimeMs > 60 * 60 * 1000)
+          fs.rmSync(file, { force: true });
+      }
+  }
+
+  onApplicationBootstrap() {
+    void this.autoRecover();
+  }
+  /**
+   * An operation still marked running at startup belongs to a process that
+   * died (often a redeploy). Left alone it blocks every player, so roll it
+   * back automatically. The old lock stays fresh for up to a minute after the
+   * crash, so retry until it is stale.
+   */
+  private async autoRecover() {
+    const lock = path.join(this.store.storage, 'world-operation.lock');
+    for (let attempt = 0; attempt < 10; attempt++) {
+      const interrupted = this.store
+        .pending()
+        .some((op) => op.status === 'running');
+      if (!interrupted && !fs.existsSync(lock)) return;
+      try {
+        const op = this.recover();
+        console.log(`Recovering interrupted world operation (${op.id})`);
+        return;
+      } catch (error) {
+        if (!(error instanceof ConflictException)) {
+          console.error('Automatic world recovery failed', error);
+          return;
+        }
+        await wait(LOCK_STALE_MS / 4);
+      }
+    }
+    console.error(
+      'Automatic world recovery gave up; use Admin > Worlds > Recover',
+    );
   }
 }

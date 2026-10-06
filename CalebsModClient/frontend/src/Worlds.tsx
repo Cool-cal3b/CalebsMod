@@ -60,9 +60,18 @@ type Setting = {
   max?: number;
   options?: string[];
 };
+type DuplicateMod = { modId: string; files: string[] };
+type UploadResult = {
+  filesProcessed: number;
+  changed: number;
+  removed: string[];
+  serverCopiesReplaced: string[];
+  duplicateMods: DuplicateMod[];
+};
 type Detail = World & {
   published: File[];
   draft: File[];
+  duplicateMods: DuplicateMod[];
   backups: Backup[];
   settings: { settings: Setting[] };
 };
@@ -76,11 +85,16 @@ type Operation = {
 };
 type List = {
   world: World | null;
+  // Players are blocked from syncing and launching.
   maintenance: boolean;
+  // Any world operation is running; admin controls are locked.
+  operationPending: boolean;
   editing: boolean;
   switchingEnabled: boolean;
   worlds: World[];
   operations: Operation[];
+  automaticBackupsKept: number;
+  storage: { backupBytes: number; freeBytes: number | null };
 };
 type Confirmation = {
   title: string;
@@ -149,7 +163,10 @@ export default function Worlds({ players }: { players: string[] }) {
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [rename, setRename] = useState("");
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
-  const locked = busy || !!list?.maintenance || !!list?.editing;
+  const [uploadMode, setUploadMode] = useState<"merge" | "replace">("merge");
+  const [resetName, setResetName] = useState("");
+  const [resetSeed, setResetSeed] = useState("");
+  const locked = busy || !!list?.operationPending || !!list?.editing;
   const refresh = useCallback(async () => {
     const next = await request<List>("GET", "");
     setList(next);
@@ -188,6 +205,8 @@ export default function Worlds({ players }: { players: string[] }) {
     setSearch("");
     setDetail(null);
     setRename("");
+    setResetName("");
+    setResetSeed("");
     const poll = async () => {
       if (!selected) return;
       try {
@@ -368,12 +387,13 @@ export default function Worlds({ players }: { players: string[] }) {
           )}
         </div>
       )}
-      {(list?.maintenance || list?.editing) && (
+      {(list?.operationPending || list?.editing) && (
         <div className="notice notice--warn notice--action">
           <AlertIcon />
           <span>
-            World controls are locked while an operation runs. Recover only if
-            the server process was interrupted.
+            World controls are locked while an operation runs. Interrupted
+            operations are recovered automatically when the server restarts;
+            use this only if that did not happen.
           </span>
           <button
             className="btn btn--sm"
@@ -657,16 +677,49 @@ export default function Worlds({ players }: { players: string[] }) {
                           value={search}
                           onChange={(e) => setSearch(e.target.value)}
                         />
+                        <select
+                          className="input select"
+                          aria-label="Upload mode"
+                          title={
+                            uploadMode === "replace"
+                              ? "Files missing from the ZIP leave the draft. Server-only files are kept."
+                              : "Adds and updates files. Nothing is removed."
+                          }
+                          value={uploadMode}
+                          disabled={locked || detail.archived}
+                          onChange={(e) =>
+                            setUploadMode(e.target.value as "merge" | "replace")
+                          }
+                        >
+                          <option value="merge">Add and update</option>
+                          <option value="replace">Replace whole pack</option>
+                        </select>
                         <button
                           className="btn"
                           disabled={locked || detail.archived}
                           onClick={() =>
                             void run(async () => {
-                              const result = await SelectWorldZIP(
-                                "/api/worlds/" + selected + "/draft/upload",
+                              const raw = await SelectWorldZIP(
+                                `/api/worlds/${selected}/draft/upload?mode=${uploadMode}`,
                                 "",
                               );
-                              return result ? JSON.parse(result) : undefined;
+                              if (!raw) return undefined;
+                              const result = JSON.parse(raw) as UploadResult;
+                              toast.success(
+                                "Draft updated",
+                                [
+                                  `${result.changed} files added or changed`,
+                                  result.removed.length
+                                    ? `${result.removed.length} removed`
+                                    : "",
+                                  result.serverCopiesReplaced.length
+                                    ? `${result.serverCopiesReplaced.length} server-specific configs will be replaced by the pack's new version`
+                                    : "",
+                                ]
+                                  .filter(Boolean)
+                                  .join("; ") + ".",
+                              );
+                              return result;
                             })
                           }
                         >
@@ -674,6 +727,19 @@ export default function Worlds({ players }: { players: string[] }) {
                           Upload ZIP
                         </button>
                       </div>
+                      {detail.duplicateMods.length > 0 && (
+                        <div className="notice notice--danger" role="alert">
+                          <AlertIcon />
+                          <span>
+                            <strong>Duplicate mods.</strong> Forge will not
+                            start with two copies of a mod. Remove one of each
+                            before applying:{" "}
+                            {detail.duplicateMods
+                              .map((d) => `${d.modId} (${d.files.join(", ")})`)
+                              .join("; ")}
+                          </span>
+                        </div>
+                      )}
                       <div className="pack-list">
                         {shown.length === 0 ? (
                           <p className="pack-list__empty">
@@ -891,9 +957,15 @@ export default function Worlds({ players }: { players: string[] }) {
                   {tab === "backups" && (
                     <>
                       <p className="meta">
-                        The latest 10 automatic backups are kept. Manual and
-                        migration backups are kept forever. Restoring creates
-                        a separate world, so nothing is overwritten.
+                        The latest {list.automaticBackupsKept} automatic
+                        backups per world are kept. Manual and migration
+                        backups are kept until you delete the world. Restoring
+                        creates a separate world, so nothing is overwritten.
+                        {" "}All backups use{" "}
+                        {megabytes(list.storage.backupBytes)}
+                        {list.storage.freeBytes !== null &&
+                          `; ${megabytes(list.storage.freeBytes)} free on the server`}
+                        .
                       </p>
                       {detail.backups.length === 0 ? (
                         <p className="pack-list__empty">No backups yet.</p>
@@ -1019,6 +1091,66 @@ export default function Worlds({ players }: { players: string[] }) {
                           {detail.archived ? "Unarchive" : "Archive"}
                         </button>
                       </div>
+                      <form
+                        className="manage-row manage-row--danger"
+                        onSubmit={(e) => {
+                          e.preventDefault();
+                          confirm(
+                            `Reset ${detail.name}?`,
+                            `${detail.active ? playerText + " " : ""}The map, player inventories, and advancements are wiped and a new world generates${resetSeed ? ` from seed ${resetSeed}` : " from a random seed"}. The modpack, settings, and per-world mod configs are kept. A backup is made first, so it can be restored as a copy.`,
+                            "Back up and reset",
+                            async () => {
+                              const op = await request("POST", `/${selected}/reset`, {
+                                confirmName: resetName,
+                                seed: resetSeed || undefined,
+                              });
+                              setResetName("");
+                              setResetSeed("");
+                              return op;
+                            },
+                            true,
+                          );
+                        }}
+                      >
+                        <div className="manage-row__text">
+                          <strong>Reset progress</strong>
+                          <span className="meta">
+                            {detail.original
+                              ? "Original World is protected and cannot be reset. Create a fresh world from its modpack instead."
+                              : "Start over with a new map and fresh inventories. Keeps the modpack and settings."}
+                          </span>
+                        </div>
+                        {!detail.original && (
+                          <div className="manage-row__control">
+                            <input
+                              className="input"
+                              aria-label="Seed for the new map"
+                              placeholder="Seed (random)"
+                              value={resetSeed}
+                              maxLength={128}
+                              onChange={(e) => setResetSeed(e.target.value)}
+                            />
+                            <input
+                              className="input"
+                              aria-label="Type the world name to confirm"
+                              placeholder={`Type ${detail.name}`}
+                              value={resetName}
+                              maxLength={80}
+                              onChange={(e) => setResetName(e.target.value)}
+                            />
+                            <button
+                              className="btn btn--danger"
+                              disabled={
+                                locked ||
+                                detail.archived ||
+                                resetName !== detail.name
+                              }
+                            >
+                              Reset
+                            </button>
+                          </div>
+                        )}
+                      </form>
                       <div className="manage-row manage-row--danger">
                         <div className="manage-row__text">
                           <strong>Delete world</strong>

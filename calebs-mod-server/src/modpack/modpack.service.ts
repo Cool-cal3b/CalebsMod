@@ -445,7 +445,7 @@ export class ModpackService {
   ): Promise<Buffer> {
     const world = this.worlds.active();
     if (world) {
-      if (this.worlds.pending().length)
+      if (this.worlds.clientBlocked())
         throw new ConflictException('World maintenance is in progress');
       if (
         binding?.worldId !== world.id ||

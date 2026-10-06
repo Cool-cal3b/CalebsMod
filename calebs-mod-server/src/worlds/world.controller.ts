@@ -11,6 +11,7 @@ import {
   UploadedFile,
   UseGuards,
   UseInterceptors,
+  UseFilters,
   BadRequestException,
   ConflictException,
 } from '@nestjs/common';
@@ -22,6 +23,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { WorldService } from './world.service';
+import { WorldErrorFilter } from './world-error.filter';
 
 const upload = FileInterceptor('file', {
   storage: diskStorage({
@@ -39,6 +41,7 @@ const upload = FileInterceptor('file', {
 });
 
 @Controller('api/worlds')
+@UseFilters(WorldErrorFilter)
 export class WorldController {
   constructor(private worlds: WorldService) {}
   @Get('active') active() {
@@ -48,7 +51,7 @@ export class WorldController {
     @Param('id') id: string,
     @Query('revision') revision: string,
   ) {
-    const { world, maintenance } = this.worlds.activeInfo();
+    const { world, maintenance } = this.worlds.clientInfo();
     if (maintenance)
       throw new ConflictException('World maintenance is in progress');
     if (!world || world.id !== id || Number(revision) !== world.revision)
@@ -143,6 +146,12 @@ export class WorldController {
   @Post(':id/backup') @UseGuards(JwtAuthGuard) backup(@Param('id') id: string) {
     return this.worlds.backup(id);
   }
+  @Post(':id/reset') @UseGuards(JwtAuthGuard) reset(
+    @Param('id') id: string,
+    @Body() body: { confirmName?: string; seed?: string },
+  ) {
+    return this.worlds.resetProgress(id, body);
+  }
   @Patch(':id/settings') @UseGuards(JwtAuthGuard) settings(
     @Param('id') id: string,
     @Body('settings') settings: Record<string, string>,
@@ -165,9 +174,17 @@ export class WorldController {
   @Post(':id/draft/upload')
   @UseGuards(JwtAuthGuard)
   @UseInterceptors(upload)
-  upload(@Param('id') id: string, @UploadedFile() file: Express.Multer.File) {
+  upload(
+    @Param('id') id: string,
+    @UploadedFile() file: Express.Multer.File,
+    @Query('mode') mode?: 'merge' | 'replace',
+  ) {
     if (!file) throw new BadRequestException('A modpack ZIP is required');
-    return this.worlds.uploadDraft(id, file.path).finally(() => {
+    if (mode !== undefined && mode !== 'merge' && mode !== 'replace') {
+      fs.unlinkSync(file.path);
+      throw new BadRequestException('mode must be merge or replace');
+    }
+    return this.worlds.uploadDraft(id, file.path, mode).finally(() => {
       if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
     });
   }

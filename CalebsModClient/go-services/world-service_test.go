@@ -164,3 +164,38 @@ func TestWorldRequestAllowsAuthenticatedDelete(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestNewWorldInstanceCarriesOptionsAndFollowsRenames(t *testing.T) {
+	prism := t.TempDir()
+	originalRoot := GameRootPath(filepath.Join(prism, "instances", INSTANCE_NAME))
+	if err := os.MkdirAll(originalRoot, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(originalRoot, "options.txt"), []byte("key_key.jump:key.keyboard.space"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	world := &ActiveWorld{ID: "f94338b4-f198-44b7-bf1b-7f9b9dd00549", Name: "Season 2"}
+	instance, err := ensureWorldInstance(prism, world)
+	if err != nil {
+		t.Fatal(err)
+	}
+	options, err := os.ReadFile(filepath.Join(GameRootPath(instance), "options.txt"))
+	if err != nil || string(options) != "key_key.jump:key.keyboard.space" {
+		t.Fatalf("options not carried over: %q %v", options, err)
+	}
+	// A player's later changes in the new world are never replaced.
+	if err = os.WriteFile(filepath.Join(GameRootPath(instance), "options.txt"), []byte("changed"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	world.Name = "Season Two"
+	if _, err = ensureWorldInstance(prism, world); err != nil {
+		t.Fatal(err)
+	}
+	if options, _ = os.ReadFile(filepath.Join(GameRootPath(instance), "options.txt")); string(options) != "changed" {
+		t.Fatalf("options overwritten: %q", options)
+	}
+	cfg, _ := os.ReadFile(filepath.Join(instance, "instance.cfg"))
+	if !strings.Contains(string(cfg), "\nname=Season Two") && !strings.HasPrefix(string(cfg), "name=Season Two") {
+		t.Fatalf("instance not renamed:\n%s", cfg)
+	}
+}

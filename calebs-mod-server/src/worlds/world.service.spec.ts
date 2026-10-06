@@ -553,11 +553,11 @@ describe('world management preserves existing data', () => {
   it('keeps manual and migration backups while pruning only excess successful automatic backups', async () => {
     const original = await adopt();
     await finish(service.backup(original.id));
-    for (let i = 0; i < 12; i++)
+    for (let i = 0; i < 4; i++)
       await (service as any).makeBackup(original, 'automatic');
     (service as any).pruneBackups();
     const backups = service.backups(original.id);
-    expect(backups.filter((b) => b.kind === 'automatic')).toHaveLength(10);
+    expect(backups.filter((b) => b.kind === 'automatic')).toHaveLength(2);
     expect(backups.filter((b) => b.kind === 'manual')).toHaveLength(1);
     expect(backups.filter((b) => b.kind === 'migration')).toHaveLength(1);
   });
@@ -630,5 +630,296 @@ describe('world management preserves existing data', () => {
       ),
     ).toBe('runtime config');
     expect(running.has(original.containerName)).toBe(true);
+  });
+
+  async function zipFile(entries: Record<string, Buffer | string>) {
+    const yazl = require('yazl');
+    const zip = new yazl.ZipFile();
+    for (const [name, data] of Object.entries(entries))
+      zip.addBuffer(Buffer.from(data), name);
+    zip.end();
+    const file = path.join(root, `${Math.random()}.zip`);
+    await new Promise((resolve, reject) =>
+      zip.outputStream
+        .pipe(fs.createWriteStream(file))
+        .on('close', resolve)
+        .on('error', reject),
+    );
+    return file;
+  }
+  const jar = (modId: string, version: string) =>
+    zipFile({
+      'META-INF/mods.toml': `modLoader="javafml"\n[[mods]]\nmodId="${modId}"\nversion="${version}"\n[[dependencies.${modId}]]\nmodId="forge"\n`,
+    }).then((file) => fs.readFileSync(file));
+
+  it('maps pack ZIP entries by whole path segment', () => {
+    const { packDestination } = require('./world.service');
+    expect(packDestination('overrides/mods/a.jar')).toEqual({
+      relative: 'mods/a.jar',
+      clientOnly: false,
+    });
+    expect(packDestination('Pack/overrides/config/a.toml')!.relative).toBe(
+      'config/a.toml',
+    );
+    expect(packDestination('Pack/mods/a.jar')!.relative).toBe('mods/a.jar');
+    expect(packDestination('Pack/options.txt')!.relative).toBe('options.txt');
+    expect(packDestination('config/somemod/overrides/x.json')!.relative).toBe(
+      'config/somemod/overrides/x.json',
+    );
+    expect(packDestination('config/mods/foo.toml')!.relative).toBe(
+      'config/mods/foo.toml',
+    );
+    expect(packDestination('overrides/.for-manual-install/mods/s.jar')).toEqual(
+      { relative: 'mods/s.jar', clientOnly: true },
+    );
+    expect(packDestination('Pack/patchouli_books/b/x.json')!.relative).toBe(
+      'patchouli_books/b/x.json',
+    );
+    // Unmanaged entries are ignored, even with names Windows cannot store.
+    expect(packDestination('manifest.json')).toBeUndefined();
+    expect(packDestination('kubejs/bad:name.js')).toBeUndefined();
+    expect(() => packDestination('mods/../evil.jar')).toThrow();
+  });
+
+  it('keeps side flags on re-upload, removes missing files in replace mode, and reports duplicate mods', async () => {
+    const original = await adopt();
+    const created = await finish(
+      service.create({ name: 'Packs', sourceId: original.id }),
+    );
+    const id = created.worldId!;
+    const oldJar = await jar('jei', '1');
+    await service.uploadDraft(
+      id,
+      await zipFile({
+        'Pack/overrides/mods/jei-1.jar': oldJar,
+        'Pack/overrides/mods/shaders.jar': 'client mod',
+      }),
+    );
+    await service.editDraft(id, {
+      relativePath: 'mods/shaders.jar',
+      serverOnly: false,
+      clientOnly: true,
+    });
+    const merged = await service.uploadDraft(
+      id,
+      await zipFile({
+        'Pack/overrides/mods/jei-2.jar': await jar('jei', '2'),
+        'Pack/overrides/mods/shaders.jar': 'client mod v2',
+      }),
+    );
+    const draft = () => store.get(id).draft;
+    expect(
+      draft().find((f) => f.relativePath === 'mods/shaders.jar')!.clientOnly,
+    ).toBe(true);
+    expect(merged.duplicateMods).toEqual([
+      { modId: 'jei', files: ['mods/jei-1.jar', 'mods/jei-2.jar'] },
+    ]);
+    const op = await finish(service.apply(id));
+    expect(op.status).toBe('failed');
+    expect(op.error).toContain('duplicate mods');
+    const replaced = await service.uploadDraft(
+      id,
+      await zipFile({
+        'Pack/overrides/mods/jei-2.jar': await jar('jei', '2'),
+        'Pack/overrides/mods/shaders.jar': 'client mod v2',
+      }),
+      'replace',
+    );
+    expect(replaced.removed).toContain('mods/jei-1.jar');
+    expect(replaced.duplicateMods).toEqual([]);
+    // Server-only files are never part of a client pack, so they stay.
+    expect(
+      draft().some((f) => f.relativePath === 'config/generated.toml'),
+    ).toBe(true);
+    expect((await finish(service.apply(id))).status).toBe('completed');
+  });
+
+  it('keeps the server copy of a config the uploaded pack did not change', async () => {
+    const original = await adopt();
+    await service.uploadDraft(
+      original.id,
+      await zipFile({ 'overrides/config/example.toml': 'uploaded config' }),
+    );
+    const entry = store
+      .get(original.id)
+      .draft.find((f) => f.relativePath === 'config/example.toml')!;
+    expect(entry.serverSha256).toBeDefined();
+    expect(service.changes(original.id)).toEqual([]);
+    const changed = await service.uploadDraft(
+      original.id,
+      await zipFile({ 'overrides/config/example.toml': 'new pack config' }),
+    );
+    expect(changed.serverCopiesReplaced).toEqual(['config/example.toml']);
+  });
+
+  it('resets a world save but keeps its mods, settings, and serverconfig', async () => {
+    const original = await adopt();
+    const copied = await finish(
+      service.create({ name: 'Season 2', sourceId: original.id, copy: true }),
+    );
+    const world = store.get(copied.worldId!);
+    fs.mkdirSync(path.join(world.dataPath, 'world', 'serverconfig'));
+    fs.writeFileSync(
+      path.join(world.dataPath, 'world', 'serverconfig', 'mod-server.toml'),
+      'tuned',
+    );
+    expect(() =>
+      service.resetProgress(world.id, { confirmName: 'wrong' }),
+    ).toThrow('Type the world name');
+    const op = await finish(
+      service.resetProgress(world.id, { confirmName: 'Season 2', seed: '42' }),
+    );
+    expect(op.status).toBe('completed');
+    expect(fs.existsSync(path.join(world.dataPath, 'world', 'level.dat'))).toBe(
+      false,
+    );
+    expect(
+      fs.existsSync(path.join(world.dataPath, 'world', 'playerdata')),
+    ).toBe(false);
+    expect(
+      fs.readFileSync(
+        path.join(world.dataPath, 'world', 'serverconfig', 'mod-server.toml'),
+        'utf8',
+      ),
+    ).toBe('tuned');
+    expect(
+      fs.readFileSync(
+        path.join(world.dataPath, 'config', 'example.toml'),
+        'utf8',
+      ),
+    ).toBe('runtime config');
+    expect(
+      fs.readFileSync(path.join(world.dataPath, 'server.properties'), 'utf8'),
+    ).toContain('level-seed=42');
+    expect(store.get(world.id).initialized).toBe(false);
+    expect(service.backups(world.id)[0].kind).toBe('automatic');
+    expect(store.active()!.id).toBe(original.id);
+  });
+
+  it('never resets Original World', async () => {
+    const original = await adopt();
+    expect(() =>
+      service.resetProgress(original.id, { confirmName: original.name }),
+    ).toThrow('Original World is protected');
+    expect(
+      fs.readFileSync(
+        path.join(original.dataPath, 'world', 'level.dat'),
+        'utf8',
+      ),
+    ).toBe('valuable world');
+  });
+
+  it('keeps the active world when an operation on another world fails', async () => {
+    const original = await adopt();
+    running.add(original.containerName);
+    const copied = await finish(
+      service.create({ name: 'Other', sourceId: original.id, copy: true }),
+    );
+    const stat = jest
+      .spyOn(require('fs'), 'statfsSync')
+      .mockReturnValue({ bavail: 0, bsize: 4096 });
+    try {
+      const op = await finish(service.backup(copied.worldId!));
+      expect(op.status).toBe('failed');
+    } finally {
+      stat.mockRestore();
+    }
+    expect(store.active()!.id).toBe(original.id);
+  });
+
+  it('only blocks players for operations that change what they sync', async () => {
+    const original = await adopt();
+    const save = (kind: string, worldId?: string) =>
+      store.saveOperation({
+        id: kind,
+        kind,
+        worldId,
+        status: 'running',
+        phase: 'x',
+        createdAt: Date.now(),
+      });
+    save('backup', original.id);
+    save('create', 'other');
+    save('apply', 'other');
+    expect(store.clientBlocked()).toBe(false);
+    expect(service.activeInfo().operationPending).toBe(true);
+    save('apply', original.id);
+    expect(store.clientBlocked()).toBe(true);
+  });
+
+  it('reuses an unchanged backup of the incoming world when switching', async () => {
+    const original = await adopt();
+    await service.enableSwitching();
+    const copied = await finish(
+      service.create({ name: 'Target', sourceId: original.id, copy: true }),
+    );
+    const target = copied.worldId!;
+    await finish(service.backup(target));
+    const before = service.backups(target).length;
+    const op = await finish(service.switchWorld(target));
+    expect(op.status).toBe('completed');
+    expect(service.backups(target)).toHaveLength(before);
+  });
+
+  it('accepts a non-zero exit after the log confirms the final save', async () => {
+    const original = await adopt();
+    running.add(original.containerName);
+    fs.mkdirSync(path.join(original.dataPath, 'logs'), { recursive: true });
+    fs.writeFileSync(path.join(original.dataPath, 'logs', 'latest.log'), '');
+    rcon.stop.mockImplementation(async () => {
+      fs.appendFileSync(
+        path.join(original.dataPath, 'logs', 'latest.log'),
+        'ThreadedAnvilChunkStorage: All dimensions are saved\n',
+      );
+      running.clear();
+    });
+    const inspect = docker.getContainer;
+    docker.getContainer = jest.fn(async (world: WorldRecord) => {
+      const container = await inspect(world);
+      const real = container.inspect;
+      container.inspect = async () => {
+        const info = await real();
+        info.State.ExitCode = info.State.Running ? 0 : 1;
+        return info;
+      };
+      return container;
+    });
+    const op = await finish(service.backup(original.id));
+    expect(op.status).toBe('completed');
+  });
+
+  it('treats a lock as stale only after its heartbeat stops', () => {
+    const lock = path.join(store.storage, 'world-operation.lock');
+    fs.writeFileSync(lock, JSON.stringify({ pid: process.pid, instance: 'x' }));
+    expect(() => store.recoverLock()).toThrow('still managing worlds');
+    const old = new Date(Date.now() - 120000);
+    fs.utimesSync(lock, old, old);
+    store.recoverLock();
+    expect(fs.existsSync(lock)).toBe(false);
+  });
+
+  it('cleans up after an interrupted create during recovery', async () => {
+    const original = await adopt();
+    const orphan = '00000000-0000-4000-8000-000000000000';
+    const directory = path.join(store.storage, 'worlds', orphan);
+    fs.mkdirSync(path.join(directory, 'minecraft-data'), { recursive: true });
+    fs.mkdirSync(path.join(store.storage, 'staging', 'leftover'), {
+      recursive: true,
+    });
+    store.saveOperation({
+      id: 'interrupted-create',
+      kind: 'create',
+      worldId: orphan,
+      status: 'running',
+      phase: 'creating',
+      createdAt: Date.now(),
+    });
+    const op = await finish(service.recover());
+    expect(op.status).toBe('completed');
+    expect(fs.existsSync(directory)).toBe(false);
+    expect(fs.existsSync(path.join(store.storage, 'staging', 'leftover'))).toBe(
+      false,
+    );
+    expect(store.active()!.id).toBe(original.id);
   });
 });

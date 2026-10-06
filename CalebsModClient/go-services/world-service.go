@@ -131,7 +131,8 @@ func ensureWorldInstance(prism string, world *ActiveWorld) (string, error) {
 	if err := os.MkdirAll(GameRootPath(instance), 0755); err != nil {
 		return "", err
 	}
-	for name, contents := range map[string]string{"instance.cfg": strings.Replace(buildInstanceCfg(), "name=CalebsMod", "name="+strings.NewReplacer("\n", " ", "\r", " ").Replace(world.Name), 1), "mmc-pack.json": buildMmcPackJson()} {
+	displayName := "name=" + strings.NewReplacer("\n", " ", "\r", " ").Replace(world.Name)
+	for name, contents := range map[string]string{"instance.cfg": strings.Replace(buildInstanceCfg(), "name=CalebsMod", displayName, 1), "mmc-pack.json": buildMmcPackJson()} {
 		target := filepath.Join(instance, name)
 		if _, err := os.Stat(target); os.IsNotExist(err) {
 			if err = os.WriteFile(target, []byte(contents), 0644); err != nil {
@@ -139,7 +140,55 @@ func ensureWorldInstance(prism string, world *ActiveWorld) (string, error) {
 			}
 		}
 	}
+	if !world.Original {
+		if err := renameInstance(filepath.Join(instance, "instance.cfg"), displayName); err != nil {
+			return "", err
+		}
+		if err := carryOverOptions(prism, instance); err != nil {
+			return "", err
+		}
+	}
 	return instance, nil
+}
+
+// renameInstance keeps the Prism display name in step with the world name,
+// which admins can change after the instance was created.
+func renameInstance(cfg, displayName string) error {
+	data, err := os.ReadFile(cfg)
+	if err != nil {
+		return err
+	}
+	lines := strings.Split(string(data), "\n")
+	changed := false
+	for i, line := range lines {
+		if strings.HasPrefix(strings.TrimRight(line, "\r"), "name=") && strings.TrimRight(line, "\r") != displayName {
+			lines[i] = displayName
+			changed = true
+		}
+	}
+	if !changed {
+		return nil
+	}
+	return os.WriteFile(cfg, []byte(strings.Join(lines, "\n")), 0644)
+}
+
+// carryOverOptions gives a new world's instance the player's keybinds and
+// video settings from their Original World instance. It only fills a missing
+// options.txt, so the pack's copy and later changes are never overwritten.
+func carryOverOptions(prism, instance string) error {
+	target := filepath.Join(GameRootPath(instance), "options.txt")
+	if _, err := os.Stat(target); !os.IsNotExist(err) {
+		return nil
+	}
+	source := filepath.Join(GameRootPath(filepath.Join(prism, "instances", INSTANCE_NAME)), "options.txt")
+	data, err := os.ReadFile(source)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(target, data, 0644)
 }
 func syncWorldInstance(prism string, world *ActiveWorld) error {
 	worldSyncMutex.Lock()

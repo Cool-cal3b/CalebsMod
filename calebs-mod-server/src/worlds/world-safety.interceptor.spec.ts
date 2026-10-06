@@ -27,6 +27,9 @@ describe('WorldSafetyInterceptor', () => {
     ['PATCH', '/api/modpack/files/hash'],
     ['DELETE', '/api/modpack/files'],
     ['DELETE', '/api/modpack/batch-zip'],
+    // Express matches routes regardless of case or a trailing slash.
+    ['POST', '/API/Modpack/upload'],
+    ['POST', '/api/modpack/upload/'],
   ])('still blocks legacy mutations: %s %s', (method, path) => {
     const interceptor = new WorldSafetyInterceptor({} as WorldStore);
     const next = { handle: jest.fn(() => of(null)) };

@@ -14,7 +14,8 @@ export class WorldSafetyInterceptor implements NestInterceptor {
   intercept(context: ExecutionContext, next: CallHandler) {
     if (context.getType() !== 'http') return next.handle();
     const req = context.switchToHttp().getRequest();
-    const url = req.path as string;
+    // Express routes ignore case and a trailing slash; match the same way.
+    const url = (req.path as string).toLowerCase().replace(/\/+$/, '');
     if (
       ['GET', 'HEAD', 'OPTIONS'].includes(req.method) ||
       (req.method === 'POST' && url === '/api/modpack/batch-zip') ||

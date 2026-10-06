@@ -1032,6 +1032,10 @@
     min-width: 0;
 }
 
+.pack-toolbar .select {
+    flex: 0 0 auto;
+}
+
 .pack-list {
     max-height: min(56vh, 520px);
     overflow-y: auto;
@@ -1259,12 +1263,21 @@
 
 .manage-row__control {
     display: flex;
+    flex-wrap: wrap;
     gap: 8px;
-    flex: 0 1 360px;
+    flex: 0 1 420px;
+}
+
+.manage-row__control .input {
+    flex: 1 1 140px;
+    min-width: 0;
 }
 
 .manage-row--danger {
     background: linear-gradient(90deg, var(--danger-soft), transparent 70%);
+}
+
+.manage-row--danger:last-child {
     border-radius: 0 0 var(--r-md) var(--r-md);
 }
 

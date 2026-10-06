@@ -55,11 +55,18 @@ export interface WorldOperation {
   progress?: { done: number; total: number };
 }
 
+const LOCK_HEARTBEAT_MS = 10_000;
+export const LOCK_STALE_MS = 60_000;
+
 @Injectable()
 export class WorldStore implements OnModuleInit {
   readonly storage: string;
   readonly blobs: string;
   private lockHandle?: number;
+  private lockHeartbeat?: NodeJS.Timeout;
+  // Identifies this process in the lock file. PIDs are reused quickly on
+  // Windows, so liveness comes from the heartbeat, not from the PID.
+  private readonly instanceId = randomUUID();
   constructor(
     readonly db: DatabaseService,
     readonly config: ConfigService,
@@ -79,6 +86,11 @@ export class WorldStore implements OnModuleInit {
       CREATE TABLE IF NOT EXISTS world_operations (id TEXT PRIMARY KEY, record TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS world_backups (id TEXT PRIMARY KEY, world_id TEXT NOT NULL, kind TEXT NOT NULL, created_at INTEGER NOT NULL, file_path TEXT NOT NULL, sha256 TEXT NOT NULL, size INTEGER NOT NULL);
     `);
+    const columns = this.db
+      .prepare('PRAGMA table_info(world_backups)')
+      .all() as { name: string }[];
+    if (!columns.some((c) => c.name === 'fingerprint'))
+      this.db.getDb().exec('ALTER TABLE world_backups ADD COLUMN fingerprint TEXT');
   }
   list(): WorldRecord[] {
     return (
@@ -219,6 +231,23 @@ export class WorldStore implements OnModuleInit {
       )
       .run(op.id, JSON.stringify(op));
   }
+  /**
+   * Whether players must wait before syncing or launching. Only operations
+   * that change which world is active, or the active world's published pack,
+   * affect clients; backups, starts, and work on other worlds do not.
+   */
+  clientBlocked(): boolean {
+    const activeId = this.active()?.id;
+    return this.pending().some(
+      (op) =>
+        ['adopt', 'switch', 'recover'].includes(op.kind) ||
+        (op.kind === 'apply' && op.worldId === activeId),
+    );
+  }
+  automaticBackupsKept(): number {
+    const value = Number(this.config.get('WORLD_AUTOMATIC_BACKUPS'));
+    return Number.isSafeInteger(value) && value >= 1 ? value : 2;
+  }
   assertIdle() {
     if (
       this.pending().length ||
@@ -237,14 +266,30 @@ export class WorldStore implements OnModuleInit {
       );
       fs.writeFileSync(
         this.lockHandle,
-        JSON.stringify({ pid: process.pid, createdAt: Date.now() }),
+        JSON.stringify({
+          pid: process.pid,
+          instance: this.instanceId,
+          createdAt: Date.now(),
+        }),
       );
     } catch {
       throw new ConflictException('Another process is managing worlds');
     }
+    const handle = this.lockHandle;
+    this.lockHeartbeat = setInterval(() => {
+      try {
+        const now = new Date();
+        fs.futimesSync(handle, now, now);
+      } catch {
+        /* The next beat retries; a missed beat only makes the lock look older. */
+      }
+    }, LOCK_HEARTBEAT_MS);
+    this.lockHeartbeat.unref();
   }
   release() {
     if (this.lockHandle === undefined) return;
+    clearInterval(this.lockHeartbeat);
+    this.lockHeartbeat = undefined;
     fs.closeSync(this.lockHandle);
     this.lockHandle = undefined;
     fs.unlinkSync(path.join(this.storage, 'world-operation.lock'));
@@ -257,18 +302,24 @@ export class WorldStore implements OnModuleInit {
       this.release();
     }
   }
+  /** Removes the lock file if the process that wrote it has stopped. */
   recoverLock() {
     const file = path.join(this.storage, 'world-operation.lock');
-    if (fs.existsSync(file)) {
-      const { pid } = JSON.parse(fs.readFileSync(file, 'utf8'));
-      try {
-        process.kill(pid, 0);
-        throw new ConflictException('The operation process is still alive');
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error;
-      }
-      fs.unlinkSync(file);
+    if (!fs.existsSync(file)) return;
+    if (this.lockHandle !== undefined)
+      throw new ConflictException('A world operation is still running');
+    let instance: string | undefined;
+    try {
+      instance = JSON.parse(fs.readFileSync(file, 'utf8')).instance;
+    } catch {
+      /* Unreadable lock: judge it by age alone. */
     }
+    const age = Date.now() - fs.statSync(file).mtimeMs;
+    if (instance !== this.instanceId && age < LOCK_STALE_MS)
+      throw new ConflictException(
+        'Another server process is still managing worlds; wait a minute and retry',
+      );
+    fs.unlinkSync(file);
   }
   newWorld(name: string, image: string): WorldRecord {
     if (typeof name !== 'string' || !name.trim() || name.length > 80)
