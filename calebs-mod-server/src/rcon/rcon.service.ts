@@ -39,7 +39,7 @@ export class RconService implements OnModuleInit, OnModuleDestroy {
       const port = this.configService.get<number>('RCON_PORT') || 25575;
       const password = this.configService.get<string>('RCON_PASSWORD') || '';
 
-      this.rcon = await Rcon.connect({
+      this.rcon = new Rcon({
         host,
         port,
         password,
@@ -54,6 +54,7 @@ export class RconService implements OnModuleInit, OnModuleDestroy {
         this.connected = false;
       });
 
+      await this.rcon.connect();
       this.connected = true;
     } catch (error) {
       this.connected = false;
