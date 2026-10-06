@@ -1032,8 +1032,11 @@
     min-width: 0;
 }
 
+/* .input sets width: 100%, so the mode picker needs an explicit width or it
+   takes the search box's space and pushes Upload ZIP out of the card. */
 .pack-toolbar .select {
-    flex: 0 0 auto;
+    flex: none;
+    width: 190px;
 }
 
 .pack-list {
