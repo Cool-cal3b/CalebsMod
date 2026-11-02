@@ -291,6 +291,72 @@ ship and its preconfigured spawners, not new creature types.
 - **Combat note:** do not trade hits. Keep distance, use cover, and expect its
   full knockback resistance to make crowd control ineffective.
 
+## Even More Magic (`even_more_magic` 1.869)
+
+### Shaker
+
+| HP | Armor | Melee | Speed |
+| --- | --- | --- | --- |
+| 10 (5♥) | 10 | 4 (2♥) | 0.3 |
+
+- **Location:** inside the lower chamber of a 16×16×16 mixed-stone structure.
+  Search toward the horizontal middle, about 4-5 blocks above its bottom.
+  Look for lanterns, a bed, columns, and ancient chests. The three structure
+  variants have 1-3 possible guard spawn positions.
+- **Behavior:** retaliates with melee when hurt. Continuously applies screen
+  shake to players within 10 blocks, changing the actual viewing direction
+  and disrupting aim. The shake itself deals no damage and wears off about
+  2 seconds after leaving range.
+- **Drops:** one Enchantinuuxxreenatiuurutunium Powder, used for wands, scroll
+  copying, rings, and magical workstations. See [Even More Magic](even-more-magic.md).
+- **Clearing guards:** increases a personal kill statistic; there is no
+  completion reward, and ancient chests do not require every guard to die.
+
+## Frostfyre (`frostfyre` 0.1.1.1)
+
+### Alpha Fire Dragon and Alpha Frost Dragon
+
+| Variant | HP | Armor | Attack attribute | Speed | Follow range |
+| --- | --- | --- | --- | --- | --- |
+| Alpha Fire | 400 (200♥) | 7 | 20 (10♥) | 0.3 | 75 blocks |
+| Alpha Frost | 400 (200♥) | 7 | 20 (10♥) | 0.3 | 75 blocks |
+
+- **Behavior:** hostile flying dragons that target players, animals, and
+  opposite-element dragons. These are base mod stats; difficulty, equipment,
+  and other mods can change damage taken.
+- **Breath:** projectiles create power-4.5 explosions on entity hits. Actual
+  damage depends on distance, cover, and defenses; the attack attribute above
+  is not a fixed breath-damage value. Projectiles also char or freeze terrain.
+- **Fire hit:** burns for 6 seconds, applies Weakness I for 30 seconds, and
+  spawns another fireball. **Frost hit:** applies freezing and Slowness I for
+  30 seconds. Keep the fight away from buildings.
+- **Drops:** 1 matching skull, 3-7 matching meat, 1-4 dragon bones, and 1-3
+  matching scales. A temporary corpse remains for about 30 seconds. Eggs are
+  crafted, not normal drops.
+
+#### What to make from dragon drops
+
+| Material | Useful paths |
+| --- | --- |
+| Skull | Dragon egg, Dragon's Eye, Command Staff, and elemental sword forging |
+| Meat | Blood Extractor converts it to dragon blood; also used in taming meals. Eating fire meat grants Strength I for 10 seconds; frost meat grants Speed I for 10 seconds. |
+| Bones | Tools, swords, repair materials, handles, and bone blocks for crafting. The pickaxe has 2,000 durability, mining speed 10, and mining level 4. |
+| Scales | Eggs and elemental Dragon Crystals for incubators and sword upgrades |
+
+- **Elemental swords:** a matching Dragonforge upgrades a dragon bone sword
+  using a skull and Dragon Crystal. Flaming hits burn and apply Weakness I
+  for 10 seconds; Freezing hits apply freezing and Slowness I for 10 seconds.
+  Both swords have 2,000 durability.
+- **Dragon's Eyes:** reusable activated buffs with a 60-second cooldown.
+  Fire grants Fire Resistance and Strength I for 30 seconds; Frost grants
+  Frost Resistance and Speed I for 30 seconds. Both add Regeneration II for
+  10 seconds. Ordinary Eyes lose durability on use; Ultimate Eyes add
+  Absorption II for 30 seconds.
+- **Own dragon:** craft a matching egg, then use an incubator with a Dragon
+  Meal and Dragon Crystal to obtain a baby. Raise and tame it for riding and
+  breath attacks; the Command Staff tells dragons to stay. Save early meat
+  for blood, which feeds the egg, meal, crystal, and equipment recipes.
+
 ## Deadly World (`deadlyworld` 1.20.1-1.1.1)
 
 Each mimic receives the following configured modifiers to its own base
