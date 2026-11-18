@@ -16,7 +16,7 @@
     "react-dom": "^18.2.0",
     "react-markdown": "8.0.7",
     "react-router-dom": "^7.18.5",
-    "rehype-slug": "5.1.0",
+    "rehype-slug": "6.0.0",
     "remark-gfm": "3.0.1"
   },
   "devDependencies": {
