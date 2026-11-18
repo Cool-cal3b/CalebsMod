@@ -3,7 +3,7 @@ module CalebsModClient
 go 1.26.11
 
 require (
-	github.com/Microsoft/go-winio v0.6.2
+	github.com/Microsoft/go-winio v0.6.4
 	github.com/Tnze/go-mc v1.20.2
 	github.com/gorilla/websocket v1.5.3
 	github.com/wailsapp/wails/v2 v2.13.0
