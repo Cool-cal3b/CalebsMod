@@ -148,7 +148,10 @@ export class WorldService implements OnApplicationBootstrap {
     return {
       ...this.activeInfo(),
       switchingEnabled: this.switchingEnabled(),
-      worlds: this.store.list().map((w) => this.summary(w)),
+      worlds: this.store
+        .list()
+        .map((w) => ({ ...this.summary(w), memory: this.docker.memoryFor(w) })),
+      memoryOptions: MEMORY_OPTIONS,
       operations: this.store.pending(),
       automaticBackupsKept: this.store.automaticBackupsKept(),
       storage: this.storageUsage(),
