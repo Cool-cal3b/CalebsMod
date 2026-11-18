@@ -82,7 +82,7 @@ export class DockerService implements OnModuleInit {
     const serverPort =
       this.configService.get<number>('MINECRAFT_SERVER_PORT') || 25565;
     const rconPort = this.configService.get<number>('RCON_PORT') || 25575;
-    const memory = this.configService.get<string>('MINECRAFT_MEMORY') || '4G';
+    const memory = this.memoryFor(world);
     const minecraftVersion =
       world?.minecraftVersion ||
       this.configService.get<string>('MINECRAFT_VERSION') ||
@@ -144,6 +144,55 @@ export class DockerService implements OnModuleInit {
     });
 
     return container;
+  }
+
+  memoryFor(world?: WorldRecord): string {
+    return (
+      world?.memory ||
+      this.configService.get<string>('MINECRAFT_MEMORY') ||
+      '4G'
+    );
+  }
+
+  /**
+   * itzg reads MEMORY once, as the JVM heap, and Docker cannot change a
+   * container's environment. A stopped container whose MEMORY differs is
+   * therefore recreated from its own inspect output with only MEMORY
+   * replaced, so adopted containers keep their exact image, mounts, ports,
+   * and environment. The old container is renamed aside first and restored
+   * if creation fails. Running containers are left alone until a restart.
+   */
+  async applyMemory(
+    container: Dockerode.Container,
+    memory: string,
+  ): Promise<Dockerode.Container> {
+    const info = await container.inspect();
+    const env = info.Config.Env || [];
+    if (info.State.Running || env.includes(`MEMORY=${memory}`))
+      return container;
+    const name = info.Name.replace(/^\//, '');
+    const aside = `${name}-previous`;
+    await container.rename({ name: aside });
+    let replacement: Dockerode.Container;
+    try {
+      // Hostname defaults to the container ID; copying it would pin the old one.
+      const { Hostname: _hostname, ...config } = info.Config;
+      replacement = await this.docker.createContainer({
+        ...config,
+        Image: info.Image,
+        name,
+        Env: [
+          ...env.filter((entry) => !entry.startsWith('MEMORY=')),
+          `MEMORY=${memory}`,
+        ],
+        HostConfig: info.HostConfig,
+      });
+    } catch (error) {
+      await container.rename({ name });
+      throw error;
+    }
+    await container.remove();
+    return replacement;
   }
 
   async assertNoOtherRunning(world: WorldRecord) {

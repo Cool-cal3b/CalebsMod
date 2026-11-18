@@ -33,6 +33,9 @@ export interface WorldRecord {
   initialized: boolean;
   minecraftVersion: string;
   forgeVersion: string;
+  // Java heap for this world's container (itzg MEMORY), e.g. '6G'. Unset
+  // means the MINECRAFT_MEMORY default.
+  memory?: string;
   generation: string;
   revision: number;
   published: WorldFile[];
@@ -90,7 +93,9 @@ export class WorldStore implements OnModuleInit {
       .prepare('PRAGMA table_info(world_backups)')
       .all() as { name: string }[];
     if (!columns.some((c) => c.name === 'fingerprint'))
-      this.db.getDb().exec('ALTER TABLE world_backups ADD COLUMN fingerprint TEXT');
+      this.db
+        .getDb()
+        .exec('ALTER TABLE world_backups ADD COLUMN fingerprint TEXT');
   }
   list(): WorldRecord[] {
     return (

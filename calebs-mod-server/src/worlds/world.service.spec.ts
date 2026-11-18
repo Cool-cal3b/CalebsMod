@@ -7,6 +7,7 @@ import { WorldStore } from './world-store';
 import { WorldService } from './world.service';
 import { readArchive, writeArchive } from './world-archive';
 import { contained, safeRelative } from './world-paths';
+import { readServerProperties } from '../server/server-properties.util';
 import type { WorldOperation, WorldRecord } from './world-store';
 import { Test } from '@nestjs/testing';
 import { ConfigModule } from '@nestjs/config';
@@ -73,6 +74,8 @@ describe('world management preserves existing data', () => {
     docker = {
       getContainer: jest.fn(async (world: WorldRecord) => container(world)),
       createContainer: jest.fn(async (world: WorldRecord) => container(world)),
+      memoryFor: jest.fn((world?: WorldRecord) => world?.memory || '4G'),
+      applyMemory: jest.fn(async (existing: unknown) => existing),
       assertNoOtherRunning: jest.fn(async (world: WorldRecord) => {
         for (const other of store.list())
           if (other.id !== world.id && running.has(other.containerName))
@@ -408,6 +411,33 @@ describe('world management preserves existing data', () => {
         'utf8',
       ),
     ).toBe('valuable world');
+  });
+  it('stores server memory on the world and applies it on the next start', async () => {
+    const original = await adopt();
+    const memoryValue = () =>
+      service
+        .settings(original.id)
+        .settings.find((s) => s.key === 'server-memory')!.value;
+    expect(memoryValue()).toBe('4G');
+    await expect(
+      service.updateSettings(original.id, { 'server-memory': '64G' }),
+    ).rejects.toThrow('server-memory');
+    running.add(original.containerName);
+    const result = await service.updateSettings(original.id, {
+      'server-memory': '8G',
+    });
+    expect(result.restartRequired).toContain('server-memory');
+    expect(store.get(original.id).memory).toBe('8G');
+    expect(memoryValue()).toBe('8G');
+    expect(
+      readServerProperties(original.dataPath).values['server-memory'],
+    ).toBeUndefined();
+    const op = await finish(service.control('restart'));
+    expect(op.status).toBe('completed');
+    expect(docker.applyMemory).toHaveBeenLastCalledWith(
+      expect.anything(),
+      '8G',
+    );
   });
   it('refuses to start an initialized world whose save is missing', async () => {
     const original = await adopt();

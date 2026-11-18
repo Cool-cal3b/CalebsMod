@@ -47,6 +47,11 @@ const PACK_ROOTS = [
   'patchouli_books',
 ];
 const ROOT_FILES = ['options.txt', 'servers.dat', 'server.dat'];
+// Not a server.properties key: stored on the world record and applied as the
+// container's MEMORY (JVM heap) on the next start. Shown alongside the
+// server.properties settings so the admin panel needs no special handling.
+const MEMORY_SETTING = 'server-memory';
+const MEMORY_OPTIONS = ['2G', '3G', '4G', '5G', '6G', '8G', '10G', '12G'];
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** Mod IDs declared in a JAR's [[mods]] sections. Dependency blocks also use
@@ -269,7 +274,8 @@ export class WorldService implements OnApplicationBootstrap {
           !include(file)
         )
           continue;
-        const hash = side === 'server' ? file.serverSha256 || file.sha256 : file.sha256;
+        const hash =
+          side === 'server' ? file.serverSha256 || file.sha256 : file.sha256;
         for (const id of new Set(await this.modIds(hash)))
           byId.set(id, [...(byId.get(id) || []), file.relativePath]);
       }
@@ -568,6 +574,10 @@ export class WorldService implements OnApplicationBootstrap {
     await this.docker.assertNoOtherRunning(world);
     let container = await this.docker.getContainer(world);
     if (!container) container = await this.docker.createContainer(world);
+    container = await this.docker.applyMemory(
+      container,
+      this.docker.memoryFor(world),
+    );
     const info = await container.inspect();
     const mount = info.Mounts?.find((m) => m.Destination === '/data');
     if (
@@ -1153,19 +1163,46 @@ export class WorldService implements OnApplicationBootstrap {
     const { values, fileExists } = readServerProperties(world.dataPath);
     return {
       fileExists,
-      settings: SERVER_SETTINGS.map((s) => ({
-        ...s,
-        liveCommand: undefined,
-        value: values[s.key] ?? s.default,
-        appliesLive: !!s.liveCommand,
-      })),
+      settings: [
+        ...SERVER_SETTINGS.map((s) => ({
+          ...s,
+          liveCommand: undefined,
+          value: values[s.key] ?? s.default,
+          appliesLive: !!s.liveCommand,
+        })),
+        {
+          key: MEMORY_SETTING,
+          label: 'Server memory',
+          description:
+            'Java heap for this world. The container uses roughly 2 GB more than this. Raise it for big sessions, lower it to free RAM. Applies on restart.',
+          type: 'enum',
+          options: MEMORY_OPTIONS,
+          default: '4G',
+          value: this.docker.memoryFor(world),
+          appliesLive: false,
+        },
+      ],
     };
   }
   async updateSettings(id: string, updates: Record<string, string>) {
     return this.store.exclusive(async () => {
       const world = this.store.get(id);
-      const normalized = validateAndNormalizeSettings(updates);
+      const { [MEMORY_SETTING]: memory, ...properties } = updates;
+      if (memory !== undefined && !MEMORY_OPTIONS.includes(String(memory)))
+        throw new BadRequestException(
+          `Invalid value for "${MEMORY_SETTING}": expected one of ${MEMORY_OPTIONS.join(', ')}`,
+        );
+      const normalized = validateAndNormalizeSettings(properties);
       writeServerProperties(normalized, world.dataPath);
+      const memoryChanged =
+        memory !== undefined && String(memory) !== this.docker.memoryFor(world);
+      if (memoryChanged) {
+        world.memory = String(memory);
+        this.store.save(world);
+        this.store.db.logAudit('set_world_memory', 'world', id, undefined, {
+          memory: world.memory,
+        });
+      }
       const live: string[] = [];
       const restartRequired: string[] = [];
       if (
@@ -1173,6 +1210,7 @@ export class WorldService implements OnApplicationBootstrap {
         (await (await this.docker.getContainer(world))?.inspect())?.State
           .Running
       ) {
+        if (memoryChanged) restartRequired.push(MEMORY_SETTING);
         for (const [key, value] of Object.entries(normalized)) {
           const definition = SERVER_SETTINGS.find((s) => s.key === key);
           if (definition?.liveCommand) {
@@ -1423,7 +1461,8 @@ export class WorldService implements OnApplicationBootstrap {
         throw new ConflictException(
           'Original World is protected and cannot be reset',
         );
-      if (world.archived) throw new ConflictException('Unarchive this world first');
+      if (world.archived)
+        throw new ConflictException('Unarchive this world first');
       if (body.confirmName !== world.name)
         throw new BadRequestException(
           'Type the world name exactly to confirm the reset',
@@ -1456,7 +1495,10 @@ export class WorldService implements OnApplicationBootstrap {
           if (entry.name.toLowerCase() === 'serverconfig') continue;
           const target = path.join(save, entry.name);
           // rmSync removes a link itself, never what it points to.
-          fs.rmSync(target, { recursive: !entry.isSymbolicLink(), force: true });
+          fs.rmSync(target, {
+            recursive: !entry.isSymbolicLink(),
+            force: true,
+          });
         }
       // A blank seed lets Minecraft pick a new random one.
       writeServerProperties({ 'level-seed': body.seed ?? '' }, world.dataPath);
