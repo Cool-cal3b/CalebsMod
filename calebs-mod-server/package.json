@@ -17,7 +17,9 @@
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
-    "test:e2e": "jest --config ./test/jest-e2e.json"
+    "test:e2e": "jest --config ./test/jest-e2e.json",
+    "postinstall": "node security/harden-dependencies.cjs",
+    "security:audit": "node security/audit.cjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.975.0",
@@ -30,12 +32,12 @@
     "@nestjs/platform-express": "^11.0.1",
     "@nestjs/platform-ws": "^11.1.11",
     "@nestjs/websockets": "^11.1.11",
-    "adm-zip": "^0.5.16",
+    "adm-zip": "^0.6.1",
     "axios": "^1.7.9",
-    "bcrypt": "^5.1.1",
-    "better-sqlite3": "^11.7.0",
+    "bcrypt": "^6.0.0",
+    "better-sqlite3": "^12.0.0",
     "dockerode": "^4.0.2",
-    "multer": "^1.4.5-lts.1",
+    "multer": "2.5.0",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
     "rcon-client": "^4.2.3",
@@ -93,5 +95,14 @@
     ],
     "coverageDirectory": "../coverage",
     "testEnvironment": "node"
+  },
+  "overrides": {
+    "multer": "2.5.0",
+    "@hono/node-server": "2.1.9",
+    "hono": "4.13.19",
+    "minimatch@>=7 <11.0.1": "11.0.9",
+    "glob@>=9 <=14.0.1": "14.0.6",
+    "uuid@>=8 <11.1.1": "11.1.1",
+    "brace-expansion@<2": "1.1.22"
   }
 }

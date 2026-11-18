@@ -48,6 +48,7 @@ export class ModpackController {
   @UseGuards(JwtAuthGuard)
   @UseInterceptors(
     FileInterceptor('file', {
+      limits: {fileSize: 1024 * 1024 * 1024, files: 1, fields: 8, parts: 9, fieldSize: 16384},
       storage: diskStorage({
         destination: './storage/cache',
         filename: (req, file, cb) => {
