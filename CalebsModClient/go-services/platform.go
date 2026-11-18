@@ -277,6 +277,10 @@ func extractTarGz(src, dest string) error {
 // assertZipEntriesAreContained rejects an archive containing any entry that
 // would be written outside dest. Used ahead of an external extractor, which
 // gives no such guarantee of its own.
+const maxExtractedArchiveBytes int64 = 2 << 30
+const maxExtractedFileBytes int64 = 1 << 30
+const maxArchiveEntries = 20000
+
 func assertZipEntriesAreContained(src string) error {
 	r, err := zip.OpenReader(src)
 	if err != nil {
@@ -284,7 +288,17 @@ func assertZipEntriesAreContained(src string) error {
 	}
 	defer r.Close()
 
+	if len(r.File) > maxArchiveEntries {
+		return fmt.Errorf("archive has too many entries")
+	}
+	var declared uint64
+
 	for _, f := range r.File {
+		if f.UncompressedSize64 > uint64(maxExtractedFileBytes) || f.UncompressedSize64 > uint64(maxExtractedArchiveBytes)-declared {
+			return fmt.Errorf("archive exceeds extraction size limits")
+		}
+		declared += f.UncompressedSize64
+
 		if !pathIsContained(filepath.FromSlash(f.Name)) {
 			return fmt.Errorf("archive contains an unsafe path: %s", f.Name)
 		}
@@ -308,6 +322,9 @@ func pathIsContained(name string) bool {
 // extractZipWithGo is the dependency-free extractor used where bundle
 // semantics do not apply.
 func extractZipWithGo(src, dest string) error {
+	if err := assertZipEntriesAreContained(src); err != nil {
+		return err
+	}
 	r, err := zip.OpenReader(src)
 	if err != nil {
 		return err
@@ -318,6 +335,8 @@ func extractZipWithGo(src, dest string) error {
 	if err != nil {
 		return err
 	}
+
+	remaining := maxExtractedArchiveBytes
 
 	for _, f := range r.File {
 		target := filepath.Join(root, filepath.FromSlash(f.Name))
@@ -351,8 +370,15 @@ func extractZipWithGo(src, dest string) error {
 			return err
 		}
 
-		_, copyErr := io.Copy(out, rc)
-		out.Close()
+		limit := min(remaining, maxExtractedFileBytes)
+		written, copyErr := io.Copy(out, io.LimitReader(rc, limit+1))
+		remaining -= written
+		if written > limit {
+			copyErr = fmt.Errorf("archive exceeds extraction size limits")
+		}
+		if closeErr := out.Close(); copyErr == nil {
+			copyErr = closeErr
+		}
 		rc.Close()
 		if copyErr != nil {
 			return copyErr

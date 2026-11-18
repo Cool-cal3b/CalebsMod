@@ -1,3 +1,4 @@
+import { timingSafeEqual } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
@@ -13,7 +14,10 @@ export class AuthService {
 
   validateAdminSecret(adminSecret: string): boolean {
     const expectedSecret = this.configService.get<string>('ADMIN_SECRET');
-    return adminSecret === expectedSecret;
+    if (typeof adminSecret !== 'string' || !expectedSecret || !adminSecret || adminSecret.length > 4096) return false;
+    const provided = Buffer.from(adminSecret);
+    const expected = Buffer.from(expectedSecret);
+    return provided.length === expected.length && timingSafeEqual(provided, expected);
   }
 
   login(adminSecret: string) {
